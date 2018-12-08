@@ -127,16 +127,17 @@ def test_optimize(optimize):
     num_classes = 2
     shape = [2, 3, 4, num_classes]
     layers_output = tf.Variable(tf.zeros(shape))
-    correct_label = tf.placeholder(tf.float32, [None, None, None, num_classes])
+    labels = tf.placeholder(tf.float32, [None, None, None, num_classes])
+    global_step = tf.Variable(0)
     learning_rate = tf.placeholder(tf.float32)
-    logits, train_op, cross_entropy_loss = optimize(layers_output, correct_label, learning_rate, num_classes)
+    logits, train_op, cross_entropy_loss = optimize(layers_output, labels, learning_rate, global_step, num_classes)
 
     _assert_tensor_shape(logits, [2*3*4, num_classes], 'Logits')
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        sess.run([train_op], {correct_label: np.arange(np.prod(shape)).reshape(shape), learning_rate: 10})
-        test, loss = sess.run([layers_output, cross_entropy_loss], {correct_label: np.arange(np.prod(shape)).reshape(shape)})
+        sess.run([train_op], {labels: np.arange(np.prod(shape)).reshape(shape), learning_rate: 10})
+        test, loss = sess.run([layers_output, cross_entropy_loss], {labels: np.arange(np.prod(shape)).reshape(shape)})
 
     assert test.min() != 0 or test.max() != 0, 'Training operation not changing weights.'
 
@@ -149,6 +150,7 @@ def test_train_nn(train_nn):
     """
     epochs = 1
     batch_size = 2
+    batches_n = 10
 
     def get_batches_fn(batch_size_param):
         shape = [batch_size_param, 2, 3, 3]
@@ -156,22 +158,26 @@ def test_train_nn(train_nn):
 
     train_op = tf.constant(0)
     cross_entropy_loss = tf.constant(10.11)
-    input_image = tf.placeholder(tf.float32, name='input_image')
-    correct_label = tf.placeholder(tf.float32, name='correct_label')
+    image_input = tf.placeholder(tf.float32, name='image_input')
+    labels = tf.placeholder(tf.float32, name='labels')
     keep_prob = tf.placeholder(tf.float32, name='keep_prob')
     learning_rate = tf.placeholder(tf.float32, name='learning_rate')
+    l2_beta = tf.placeholder(tf.float32, name='l2_beta')
+
     with tf.Session() as sess:
         parameters = {
             'sess': sess,
             'epochs': epochs,
             'batch_size': batch_size,
             'get_batches_fn': get_batches_fn,
+            'batches_n': batches_n,
             'train_op': train_op,
             'cross_entropy_loss': cross_entropy_loss,
-            'input_image': input_image,
-            'correct_label': correct_label,
+            'image_input': image_input,
+            'labels': labels,
             'keep_prob': keep_prob,
-            'learning_rate': learning_rate}
+            'learning_rate': learning_rate,
+            'l2_beta': l2_beta}
         _prevent_print(train_nn, parameters)
 
 
