@@ -6,7 +6,6 @@ import numpy as np
 from tqdm import tqdm
 import time
 import helper
-import warnings
 from distutils.version import LooseVersion
 import project_tests as tests
 from args import FLAGS
@@ -25,9 +24,12 @@ assert LooseVersion(tf.__version__) >= LooseVersion('1.0'), 'Please use TensorFl
 
 print('TensorFlow Version: {}'.format(tf.__version__))
 
+def warn_msg(message):
+    print("[Warning]: {}".format(message))
+
 # Check for a GPU
 if not tf.test.gpu_device_name():
-    warnings.warn('No GPU found. Please use a GPU to train your neural network.')
+    warn_msg('No GPU found. Please use a GPU to train your neural network.')
 else:
     print('Default GPU Device: {}'.format(tf.test.gpu_device_name()))
 
@@ -81,20 +83,25 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     :param num_classes: Number of classes to classify
     :return: The Tensor for the last layer of output
     """
+    inizializer=tf.truncated_normal_initializer(stddev=FLAGS.w_std)
+    regularizer=tf.contrib.layers.l2_regularizer(FLAGS.l2_reg)
+
+    #vgg_layer3_scaled = tf.multiply(vgg_layer3_out, 0.0001, name='layer3_scaled')
+    #vgg_layer4_scaled = tf.multiply(vgg_layer4_out, 0.01, name='layer4_scaled')
 
     # 1x1 convolutions to the encoder layers
-    layer3_1x1 = conv_1x1(vgg_layer3_out, num_classes, 'layer3_1x1')
-    layer4_1x1 = conv_1x1(vgg_layer4_out, num_classes, 'layer4_1x1')
-    layer7_1x1 = conv_1x1(vgg_layer7_out, num_classes, 'layer7_1x1')
+    layer3_1x1 = conv_1x1(vgg_layer3_out, num_classes, 'layer3_1x1', inizializer=inizializer, regularizer=regularizer)
+    layer4_1x1 = conv_1x1(vgg_layer4_out, num_classes, 'layer4_1x1', inizializer=inizializer, regularizer=regularizer)
+    layer7_1x1 = conv_1x1(vgg_layer7_out, num_classes, 'layer7_1x1', inizializer=inizializer, regularizer=regularizer)
 
     # Upsample to decode into final image size
-    layer7_up = up_sample(layer7_1x1, num_classes, 'layer7_up')
+    layer7_up = up_sample(layer7_1x1, num_classes, 'layer7_up', inizializer=inizializer, regularizer=regularizer)
 
     layer4_skip = tf.add(layer7_up, layer4_1x1, name="layer4_skip")
-    layer4_up = up_sample(layer4_skip, num_classes, 'layer4_up')
+    layer4_up = up_sample(layer4_skip, num_classes, 'layer4_up', inizializer=inizializer, regularizer=regularizer)
 
     layer3_skip = tf.add(layer4_up, layer3_1x1, name='layer3_skip')
-    layer3_up = up_sample(layer3_skip, num_classes, 'layer3_up', kernel_size=(16, 16), strides=(8, 8))
+    layer3_up = up_sample(layer3_skip, num_classes, 'layer3_up', kernel_size=(16, 16), strides=(8, 8), inizializer=inizializer, regularizer=regularizer)
 
     return layer3_up
 
@@ -109,8 +116,11 @@ def optimize(nn_last_layer, labels, learning_rate, num_classes):
     """
     logits = tf.reshape(nn_last_layer, (-1, num_classes))
     
+    # sparse_softmax_cross_entropy_with_logits
     cross_entropy = tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=labels)
-    cross_entropy_loss = tf.reduce_mean(cross_entropy)
+
+    # Applies L2 regularization
+    cross_entropy_loss = tf.reduce_mean(cross_entropy) + tf.losses.get_regularization_loss()
 
     # Keeps track of the training steps
     optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
@@ -129,7 +139,7 @@ def save_model(saver, sess, epoch = None):
 
 
 def train_nn(sess, epochs, batch_size, get_batches_fn, batches_n, train_op, cross_entropy_loss, image_input,
-             labels, keep_prob, learning_rate, l2_beta, save_model = False):
+             labels, keep_prob, learning_rate, save_model = False):
     """
     Train neural network and print out the loss during training.
     :param sess: TF Session
@@ -142,15 +152,14 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, batches_n, train_op, cros
     :param labels: TF Placeholder for label images
     :param keep_prob: TF Placeholder for dropout keep probability
     :param learning_rate: TF Placeholder for learning rate
-    :param l2_beta: TF Placeholder for l2 regularization beta
     """
 
-    print('Training = (Epochs: {}, Batch Size: {}, Learning Rate: {}, Dropout: {}, L2 Beta: {})'.format(
+    print('Training = (Epochs: {}, Batch Size: {}, Learning Rate: {}, Dropout: {}, L2 Reg: {})'.format(
         FLAGS.epochs,
         FLAGS.batch_size,
         FLAGS.learning_rate,
         FLAGS.dropout,
-        FLAGS.l2_beta
+        FLAGS.l2_reg
     ))
 
     sess.run(tf.global_variables_initializer())
@@ -158,6 +167,8 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, batches_n, train_op, cros
 
     if save_model:
         saver = tf.train.Saver()
+    else:
+        saver = None
 
     loss_log = []
 
@@ -168,7 +179,7 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, batches_n, train_op, cros
         curr_epoch = epoch + 1
         batches = tqdm(get_batches_fn(batch_size),
                        desc='Epoch {}/{} (Loss: N/A)'.format(curr_epoch, epochs),
-                       unit='batches',
+                       unit='batch',
                        total=batches_n)
 
         losses = []
@@ -179,8 +190,7 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, batches_n, train_op, cros
                 image_input: batch_images,
                 labels: batch_labels,
                 keep_prob: (1 - FLAGS.dropout),
-                learning_rate: FLAGS.learning_rate,
-                l2_beta: FLAGS.l2_beta
+                learning_rate: FLAGS.learning_rate
             }
 
             _, loss = sess.run([train_op, cross_entropy_loss], feed_dict=feed_dict)
@@ -189,7 +199,7 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, batches_n, train_op, cros
             training_loss = np.mean(losses)
             loss_log.append(training_loss)
 
-            batches.set_description('Epoch {}/{} (Loss: {})'.format(curr_epoch, epochs, training_loss))
+            batches.set_description('Epoch {}/{} (Loss: {:.4f})'.format(curr_epoch, epochs, training_loss))
         
         if epoch % 5 == 0 and saver is not None:
             save_model(sess, saver, curr_epoch)
@@ -220,18 +230,25 @@ def run():
     
     batches_n = int(math.ceil(float(samples_n) / FLAGS.batch_size))
 
-    with tf.Session() as sess:
+    config = None
+
+    if FLAGS.cpu:
+        warn_msg("Forcing CPU usage")
+        config = tf.ConfigProto(
+            device_count = {'GPU': 0}
+        )
+
+    with tf.Session(config=config) as sess:
 
         labels = tf.placeholder(tf.float32, [None, None, None, CLASSES_N], 'input_labels')
         learning_rate = tf.placeholder(tf.float32, name='learning_rate')
-        l2_beta = tf.placeholder(tf.float32, name='l2_beta')
 
         image_input, keep_prob, layer3, layer4, layer7 = load_vgg(sess, vgg_path)
         model_output = layers(layer3, layer4, layer7, CLASSES_N)
         logits, train_op, cross_entropy_loss = optimize(model_output, labels, learning_rate, CLASSES_N)
 
         train_nn(sess, FLAGS.epochs, FLAGS.batch_size, get_batches_fn, batches_n, train_op, cross_entropy_loss, image_input,
-                 labels, keep_prob, learning_rate, l2_beta, True)
+                 labels, keep_prob, learning_rate, True)
 
         helper.save_inference_samples(FLAGS.runs_dir, FLAGS.data_dir, sess, IMAGE_SHAPE, logits, keep_prob, image_input)
 

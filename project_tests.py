@@ -161,7 +161,6 @@ def test_train_nn(train_nn):
     labels = tf.placeholder(tf.float32, name='labels')
     keep_prob = tf.placeholder(tf.float32, name='keep_prob')
     learning_rate = tf.placeholder(tf.float32, name='learning_rate')
-    l2_beta = tf.placeholder(tf.float32, name='l2_beta')
 
     with tf.Session() as sess:
         parameters = {
@@ -175,8 +174,7 @@ def test_train_nn(train_nn):
             'image_input': image_input,
             'labels': labels,
             'keep_prob': keep_prob,
-            'learning_rate': learning_rate,
-            'l2_beta': l2_beta}
+            'learning_rate': learning_rate}
         _prevent_print(train_nn, parameters)
 
 
