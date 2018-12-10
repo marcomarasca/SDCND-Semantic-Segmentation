@@ -1,0 +1,4 @@
+Spot Instances:
+
+p2.xlarge	$0.27 per Hour (1	4	61	12	High)
+g2.2xlarge	$0.195 per Hour (26 ECUs, 8 vCPUs, 2.6 GHz, Intel Xeon E5-2670, 15 GiB memory, 1 x 60 GiB Storage Capacity)

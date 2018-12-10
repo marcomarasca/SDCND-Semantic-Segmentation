@@ -100,13 +100,12 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     return layer3_up
 
 
-def optimize(nn_last_layer, labels, learning_rate, global_step, num_classes):
+def optimize(nn_last_layer, labels, learning_rate, num_classes):
     """
     Build the TensorFLow loss and optimizer operations.
     :param nn_last_layer: TF Tensor of the last layer in the neural network
     :param labels: TF Placeholder for the correct label image
     :param learning_rate: TF Placeholder for the learning rate
-    :param global_step: Number of classes to classify
     :return: Tuple of (logits, train_op, cross_entropy_loss)
     """
     logits = tf.reshape(nn_last_layer, (-1, num_classes))
@@ -115,7 +114,7 @@ def optimize(nn_last_layer, labels, learning_rate, global_step, num_classes):
     cross_entropy_loss = tf.reduce_mean(cross_entropy)
     # Keeps track of the training steps
     optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
-    train_op = optimizer.minimize(cross_entropy_loss, global_step=global_step)
+    train_op = optimizer.minimize(cross_entropy_loss)
 
     return logits, train_op, cross_entropy_loss
 
@@ -205,6 +204,7 @@ def run():
     vgg_path = helper.maybe_download_pretrained_vgg(FLAGS.data_dir)
     # Create function to get batches
     get_batches_fn, samples_n = helper.gen_batch_function(os.path.join(FLAGS.data_dir, 'data_road/training'), IMAGE_SHAPE)
+    
     batches_n = int(math.ceil(float(samples_n) / FLAGS.batch_size))
 
     with tf.Session() as sess:
@@ -212,11 +212,10 @@ def run():
         labels = tf.placeholder(tf.float32, [None, None, None, CLASSES_N], 'input_labels')
         learning_rate = tf.placeholder(tf.float32, name='learning_rate')
         l2_beta = tf.placeholder(tf.float32, name='l2_beta')
-        global_step = tf.Variable(0, name='global_step')
 
         image_input, keep_prob, layer3, layer4, layer7 = load_vgg(sess, vgg_path)
         model_output = layers(layer3, layer4, layer7, CLASSES_N)
-        logits, train_op, cross_entropy_loss = optimize(model_output, labels, learning_rate, global_step, CLASSES_N)
+        logits, train_op, cross_entropy_loss = optimize(model_output, labels, learning_rate, CLASSES_N)
 
         train_nn(sess, FLAGS.epochs, FLAGS.batch_size, get_batches_fn, batches_n, train_op, cross_entropy_loss, image_input,
                  labels, keep_prob, learning_rate, l2_beta, True)
