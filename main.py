@@ -12,6 +12,7 @@ import project_tests as tests
 from args import FLAGS
 
 MODEL_DIR = 'models'
+MODEL_NAME = 'fcn-vgg16'
 MODEL_EXT = '.ckpt'
 IMAGE_SHAPE = (160, 576)  # KITTI dataset uses 160x576 images
 CLASSES_N = 2
@@ -20,15 +21,13 @@ if not os.path.isdir(MODEL_DIR):
     os.makedirs(MODEL_DIR)
     
 # Check TensorFlow Version
-assert LooseVersion(tf.__version__) >= LooseVersion(
-    '1.0'), 'Please use TensorFlow version 1.0 or newer.  You are using {}'.format(tf.__version__)
+assert LooseVersion(tf.__version__) >= LooseVersion('1.0'), 'Please use TensorFlow version 1.0 or newer.  You are using {}'.format(tf.__version__)
 
 print('TensorFlow Version: {}'.format(tf.__version__))
 
 # Check for a GPU
 if not tf.test.gpu_device_name():
-    warnings.warn(
-        'No GPU found. Please use a GPU to train your neural network.')
+    warnings.warn('No GPU found. Please use a GPU to train your neural network.')
 else:
     print('Default GPU Device: {}'.format(tf.test.gpu_device_name()))
 
@@ -109,14 +108,24 @@ def optimize(nn_last_layer, labels, learning_rate, num_classes):
     :return: Tuple of (logits, train_op, cross_entropy_loss)
     """
     logits = tf.reshape(nn_last_layer, (-1, num_classes))
-    labels = tf.reshape(labels, (-1, num_classes))
+    
     cross_entropy = tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=labels)
     cross_entropy_loss = tf.reduce_mean(cross_entropy)
+
     # Keeps track of the training steps
     optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
     train_op = optimizer.minimize(cross_entropy_loss)
 
     return logits, train_op, cross_entropy_loss
+
+def save_model(saver, sess, epoch = None):
+    file_name = MODEL_NAME
+    if epoch is not None:
+        file_name += '_ep_' + epoch
+    file_name += MODEL_EXT
+    file_path = os.path.join(MODEL_DIR, file_name)
+    save_path = saver.save(sess, file_path)
+    print("Model saved in path: {}".format(save_path))
 
 
 def train_nn(sess, epochs, batch_size, get_batches_fn, batches_n, train_op, cross_entropy_loss, image_input,
@@ -147,14 +156,18 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, batches_n, train_op, cros
     sess.run(tf.global_variables_initializer())
     sess.run(tf.local_variables_initializer())
 
+    if save_model:
+        saver = tf.train.Saver()
+
     loss_log = []
 
     start = time.time()
 
     for epoch in range(epochs):
 
+        curr_epoch = epoch + 1
         batches = tqdm(get_batches_fn(batch_size),
-                       desc='Epoch {}/{} (Loss: N/A)'.format(epoch + 1, epochs),
+                       desc='Epoch {}/{} (Loss: N/A)'.format(curr_epoch, epochs),
                        unit='batches',
                        total=batches_n)
 
@@ -176,16 +189,16 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, batches_n, train_op, cros
             training_loss = np.mean(losses)
             loss_log.append(training_loss)
 
-            batches.set_description('Epoch {}/{} (Loss: {})'.format(epoch + 1, epochs, training_loss))
+            batches.set_description('Epoch {}/{} (Loss: {})'.format(curr_epoch, epochs, training_loss))
+        
+        if epoch % 5 == 0 and saver is not None:
+            save_model(sess, saver, curr_epoch)
 
     elapsed = time.time() - start
     print("Training finished ({:.1f} s)".format(elapsed))
 
-    if save_model:
-        saver = tf.train.Saver()
-        file_path = os.path.join(MODEL_DIR, 'model' + MODEL_EXT)
-        save_path = saver.save(sess, file_path)
-        print("Model saved in path:", save_path)
+    if saver is not None:
+        save_model(sess, saver)
     
     return loss_log
 
