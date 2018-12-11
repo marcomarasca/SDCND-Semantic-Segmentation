@@ -12,6 +12,7 @@ from args import FLAGS
 from datetime import datetime
 import pickle
 import scipy.misc
+from moviepy.editor import VideoFileClip
 
 LOGS_DIR = 'logs'
 MODEL_DIR = 'models'
@@ -169,10 +170,11 @@ def load_model(sess, model_path=None):
     print('Model restored from path: {}'.format(model_path))
 
 
-def write_loss_log(loss_log, model_folder):
-    file_path = os.path.join(os.path.join(MODEL_DIR, model_folder), 'loss.log')
+def write_training_log(training_log, model_folder):
+    log = {'training': training_log}
+    file_path = os.path.join(os.path.join(MODEL_DIR, model_folder), 'training_log.p')
     with open(file_path, 'wb') as f:
-        pickle.dump(loss_log, f, protocol=pickle.HIGHEST_PROTOCOL)
+        pickle.dump(log, f, protocol=pickle.HIGHEST_PROTOCOL)
     print('Loss log saved to: {}'.format(file_path))
 
 
@@ -202,7 +204,6 @@ def train_nn(sess,
     :param keep_prob: TF Placeholder for dropout keep probability
     :param learning_rate: TF Placeholder for learning rate
     """
-
     print('Training = (Epochs: {}, Batch Size: {}, Learning Rate: {}, Dropout: {}, L2 Reg: {})'.format(
         FLAGS.epochs, FLAGS.batch_size, FLAGS.learning_rate, FLAGS.dropout, FLAGS.l2_reg))
 
@@ -228,7 +229,7 @@ def train_nn(sess,
     else:
         summary = None
 
-    loss_log = []
+    training_log = []
 
     start = time.time()
 
@@ -236,14 +237,14 @@ def train_nn(sess,
 
     for epoch in range(epochs):
 
-        curr_epoch = epoch + 1
+        total_loss = 0
+        images_n = 0
+
         batches = tqdm(
             get_batches_fn(batch_size),
-            desc='Epoch {}/{} (Loss: N/A, Step: N/A)'.format(curr_epoch, epochs),
+            desc='Epoch {}/{} (Step: N/A, Loss: N/A)'.format(epoch + 1, epochs),
             unit='batches',
             total=batches_n)
-
-        losses = []
 
         for batch_images, batch_labels in batches:
 
@@ -262,12 +263,14 @@ def train_nn(sess,
                 _, loss, train_summary = sess.run([train_op, cross_entropy_loss, summary], feed_dict=feed_dict)
                 writer.add_summary(train_summary, global_step=step)
 
-            losses.append(loss)
-            training_loss = np.mean(losses)
-            loss_log.append(training_loss)
+            total_loss += loss * len(batch_images)
+            images_n += len(batch_images)
 
-            batches.set_description('Epoch {}/{} (Loss: {:.4f}, Step: {})'.format(curr_epoch, epochs, training_loss,
-                                                                                  step))
+            curr_loss = total_loss / images_n
+
+            training_log.append(curr_loss)
+
+            batches.set_description('Epoch {}/{} (Step: {}, Loss: {:.4f})'.format(epoch + 1, epochs, step, curr_loss))
 
         if epoch % 5 == 0 and saver is not None:
             write_model(sess, saver, model_folder, step)
@@ -277,7 +280,7 @@ def train_nn(sess,
 
     if saver is not None:
         write_model(sess, saver, model_folder, step)
-        write_loss_log(loss_log, model_folder)
+        write_training_log(training_log, model_folder)
 
     return model_folder
 
@@ -321,10 +324,25 @@ def process_image(file_path):
 
 
 def process_video(file_path):
-    # TODO
-    pass
 
+    if not os.path.isfile(file_path):
+        raise ValueError('The file {} does not exist'.format(file_path))
 
+    video_output = os.path.join(FLAGS.runs_dir, os.path.basename(file_path))
+    clip1 = VideoFileClip(file_path)
+
+    vgg_path = helper.maybe_download_pretrained_vgg(FLAGS.data_dir)
+
+    with tf.Session(config=get_config()) as sess:
+        image_input, keep_prob, layer3, layer4, layer7 = load_vgg(sess, vgg_path)
+        model_output = layers(layer3, layer4, layer7, CLASSES_N)
+        logits = tf.reshape(model_output, (-1, CLASSES_N))
+
+        load_model(sess, FLAGS.model)
+        video_clip = clip1.fl_image(lambda frame: helper.process_image(frame, sess, logits, keep_prob, image_input, IMAGE_SHAPE))
+        video_clip.write_videofile(video_output, audio=False)   
+
+    
 def run_testing():
 
     vgg_path = helper.maybe_download_pretrained_vgg(FLAGS.data_dir)

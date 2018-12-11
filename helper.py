@@ -125,7 +125,34 @@ def gen_batch_function(data_folder, image_shape):
     return get_batches_fn, samples_n
 
 
-def process_image(file_path, sess, logits, keep_prob, image_pl, image_shape):
+def process_image(image, sess, logits, keep_prob, image_pl, image_shape):
+    """
+	Process a single image
+	:param image: The image 
+	:param sess: TF session
+	:param logits: TF Tensor for the logits
+	:param keep_prob: TF Placeholder for the dropout keep probability
+	:param image_pl: TF Placeholder for the image placeholder
+	:param data_folder: Path to the folder that contains the datasets
+	:param image_shape: Tuple - Shape of image
+	:return: A segmented image
+	"""
+    # Run inference
+    im_softmax = sess.run([tf.nn.softmax(logits)], {keep_prob: 1.0, image_pl: [image]})
+    # Splice out second column (road), reshape output back to image_shape
+    im_softmax = im_softmax[0][:, 1].reshape(image_shape[0], image_shape[1])
+    # If road softmax > 0.5, prediction is road
+    segmentation = (im_softmax > 0.5).reshape(image_shape[0], image_shape[1], 1)
+    # Create mask based on segmentation to apply to original image
+    mask = np.dot(segmentation, np.array([[0, 255, 0, 127]]))
+    mask = scipy.misc.toimage(mask, mode="RGBA")
+    street_im = scipy.misc.toimage(image)
+    street_im.paste(mask, box=None, mask=mask)
+
+    return np.array(street_im)
+
+
+def process_image_file(file_path, sess, logits, keep_prob, image_pl, image_shape):
     """
 	Process a single image from the given path
 	:param file_path: The image path
@@ -139,19 +166,9 @@ def process_image(file_path, sess, logits, keep_prob, image_pl, image_shape):
 	"""
     image = scipy.misc.imresize(scipy.misc.imread(file_path), image_shape)
 
-    # Run inference
-    im_softmax = sess.run([tf.nn.softmax(logits)], {keep_prob: 1.0, image_pl: [image]})
-    # Splice out second column (road), reshape output back to image_shape
-    im_softmax = im_softmax[0][:, 1].reshape(image_shape[0], image_shape[1])
-    # If road softmax > 0.5, prediction is road
-    segmentation = (im_softmax > 0.5).reshape(image_shape[0], image_shape[1], 1)
-    # Create mask based on segmentation to apply to original image
-    mask = np.dot(segmentation, np.array([[0, 255, 0, 127]]))
-    mask = scipy.misc.toimage(mask, mode="RGBA")
-    street_im = scipy.misc.toimage(image)
-    street_im.paste(mask, box=None, mask=mask)
+    street_im = process_image(image, sess, logits, keep_prob, image_pl, image_shape)
 
-    return os.path.basename(file_path), np.array(street_im)
+    return os.path.basename(file_path), street_im
 
 
 def gen_test_output(sess, logits, keep_prob, image_pl, data_folder, image_shape):
@@ -169,7 +186,7 @@ def gen_test_output(sess, logits, keep_prob, image_pl, data_folder, image_shape)
     images = glob(os.path.join(data_folder, 'image_2', '*.png'))
 
     for image_file in tqdm(images, desc='Processing: ', unit='images', total=len(images)):
-        yield process_image(image_file, sess, logits, keep_prob, image_pl, image_shape)
+        yield process_image_file(image_file, sess, logits, keep_prob, image_pl, image_shape)
 
 
 def save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, keep_prob, input_image):
