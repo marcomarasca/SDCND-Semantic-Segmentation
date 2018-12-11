@@ -149,7 +149,7 @@ def test_train_nn(train_nn):
     """
     epochs = 1
     batch_size = 2
-    batches_n = 10
+    batches_n = 2
 
     def get_batches_fn(batch_size_param):
         shape = [batch_size_param, 2, 3, 3]
