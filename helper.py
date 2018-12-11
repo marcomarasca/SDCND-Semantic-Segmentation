@@ -137,6 +137,7 @@ def process_image(image, sess, logits, keep_prob, image_pl, image_shape):
 	:param image_shape: Tuple - Shape of image
 	:return: A segmented image
 	"""
+    image = scipy.misc.imresize(image, image_shape)
     # Run inference
     im_softmax = sess.run([tf.nn.softmax(logits)], {keep_prob: 1.0, image_pl: [image]})
     # Splice out second column (road), reshape output back to image_shape
@@ -164,9 +165,7 @@ def process_image_file(file_path, sess, logits, keep_prob, image_pl, image_shape
 	:param image_shape: Tuple - Shape of image
 	:return: A pair with the file name and the segmented image
 	"""
-    image = scipy.misc.imresize(scipy.misc.imread(file_path), image_shape)
-
-    street_im = process_image(image, sess, logits, keep_prob, image_pl, image_shape)
+    street_im = process_image(scipy.misc.imread(file_path), sess, logits, keep_prob, image_pl, image_shape)
 
     return os.path.basename(file_path), street_im
 

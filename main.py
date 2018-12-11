@@ -4,6 +4,7 @@ import tensorflow as tf
 import math
 import numpy as np
 from tqdm import tqdm
+from tqdm import trange
 import time
 import helper
 from distutils.version import LooseVersion
@@ -12,7 +13,7 @@ from args import FLAGS
 from datetime import datetime
 import pickle
 import scipy.misc
-from moviepy.editor import VideoFileClip
+import cv2
 
 LOGS_DIR = 'logs'
 MODEL_DIR = 'models'
@@ -152,6 +153,12 @@ def optimize(nn_last_layer, labels, learning_rate, num_classes):
     return logits, train_op, cross_entropy_loss
 
 
+def iou_metric(model_output, labels, num_classes):
+    logits_argmax = tf.argmax(tf.nn.softmax(model_output), axis=-1)
+    labels_argmax = tf.argmax(labels, axis=-1)
+    return tf.metrics.mean_iou(labels_argmax, logits_argmax, num_classes)
+
+
 def write_model(sess, saver, model_folder, step):
     file_name = MODEL_NAME + MODEL_EXT
     file_path = os.path.join(os.path.join(MODEL_DIR, model_folder), file_name)
@@ -185,6 +192,8 @@ def train_nn(sess,
              batches_n,
              train_op,
              cross_entropy_loss,
+             iou_op,
+             iou_mean,
              image_input,
              labels,
              keep_prob,
@@ -199,6 +208,8 @@ def train_nn(sess,
     :param get_batches_fn: Function to get batches of training data.  Call using get_batches_fn(batch_size)
     :param train_op: TF Operation to train the neural network
     :param cross_entropy_loss: TF Tensor for the amount of loss
+    :param iou_op: TF operation to update the iou metric
+    :param iou_mean: TF tensor for the mean iou
     :param image_input: TF Placeholder for input images
     :param labels: TF Placeholder for label images
     :param keep_prob: TF Placeholder for dropout keep probability
@@ -220,12 +231,12 @@ def train_nn(sess,
 
     model_folder = datetime.now().strftime('%Y%m%d_%H%M%S')
     if tensorboard:
-        tf.summary.scalar('learning_rate', learning_rate)
+        tf.summary.scalar('mean_iou', iou_mean)
         tf.summary.scalar('total_loss', cross_entropy_loss)
 
         summary = tf.summary.merge_all()
         writer_folder = os.path.join(LOGS_DIR, model_folder)
-        writer = tf.summary.FileWriter(writer_folder, sess.graph)
+        train_writer = tf.summary.FileWriter(writer_folder, sess.graph)
     else:
         summary = None
 
@@ -238,11 +249,14 @@ def train_nn(sess,
     for epoch in range(epochs):
 
         total_loss = 0
+        curr_loss = 0
+        total_iou = 0
+        curr_iou = 0
         images_n = 0
 
         batches = tqdm(
             get_batches_fn(batch_size),
-            desc='Epoch {}/{} (Step: N/A, Loss: N/A)'.format(epoch + 1, epochs),
+            desc='Epoch {}/{} (Step: N/A, Loss: N/A, IOU: N/A)'.format(epoch + 1, epochs),
             unit='batches',
             total=batches_n)
 
@@ -257,20 +271,38 @@ def train_nn(sess,
 
             step += len(batch_images)
 
-            if summary is None:
-                _, loss = sess.run([train_op, cross_entropy_loss], feed_dict=feed_dict)
-            else:
-                _, loss, train_summary = sess.run([train_op, cross_entropy_loss, summary], feed_dict=feed_dict)
-                writer.add_summary(train_summary, global_step=step)
+            # Train
+            _ = sess.run(train_op, feed_dict=feed_dict)
 
-            total_loss += loss * len(batch_images)
             images_n += len(batch_images)
 
+            # Evaluate
+            loss, _, iou = sess.run([cross_entropy_loss, iou_op, iou_mean],
+                                    feed_dict={
+                                        image_input: batch_images,
+                                        labels: batch_labels,
+                                        keep_prob: 1.0
+                                    })
+
+            total_loss += loss * len(batch_images)
             curr_loss = total_loss / images_n
 
-            training_log.append(curr_loss)
+            total_iou += iou * len(batch_images)
+            curr_iou = total_iou / images_n
 
-            batches.set_description('Epoch {}/{} (Step: {}, Loss: {:.4f})'.format(epoch + 1, epochs, step, curr_loss))
+            training_log.append((curr_loss, curr_iou))
+
+            if summary is not None:
+                training_summary = sess.run(
+                    summary, feed_dict={
+                        image_input: batch_images,
+                        labels: batch_labels,
+                        keep_prob: 1.0
+                    })
+                train_writer.add_summary(training_summary, global_step=step)
+
+            batches.set_description('Epoch {}/{} (Step: {}, Loss: {:.4f}, IOU: {:.4f})'.format(
+                epoch + 1, epochs, step, curr_loss, curr_iou))
 
         if epoch % 5 == 0 and saver is not None:
             write_model(sess, saver, model_folder, step)
@@ -329,7 +361,16 @@ def process_video(file_path):
         raise ValueError('The file {} does not exist'.format(file_path))
 
     video_output = os.path.join(FLAGS.runs_dir, os.path.basename(file_path))
-    clip1 = VideoFileClip(file_path)
+
+    cap = cv2.VideoCapture(file_path)
+    frame_n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    #width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    #height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+
+    # Define the codec and create VideoWriter object
+    fourcc = cv2.VideoWriter_fourcc(*'DIVX')
+    out = cv2.VideoWriter(video_output + '.avi', fourcc, fps, IMAGE_SHAPE[::-1])
 
     vgg_path = helper.maybe_download_pretrained_vgg(FLAGS.data_dir)
 
@@ -339,10 +380,17 @@ def process_video(file_path):
         logits = tf.reshape(model_output, (-1, CLASSES_N))
 
         load_model(sess, FLAGS.model)
-        video_clip = clip1.fl_image(lambda frame: helper.process_image(frame, sess, logits, keep_prob, image_input, IMAGE_SHAPE))
-        video_clip.write_videofile(video_output, audio=False)   
+        for i in trange(frame_n, desc='Processing', unit='frames'):
+            if cap.isOpened():
+                ret, frame = cap.read()
+                if ret == True:
+                    frame = helper.process_image(frame, sess, logits, keep_prob, image_input, IMAGE_SHAPE)
+                    out.write(frame)
 
-    
+        cap.release()
+        out.release()
+
+
 def run_testing():
 
     vgg_path = helper.maybe_download_pretrained_vgg(FLAGS.data_dir)
@@ -377,8 +425,10 @@ def run():
 
         logits, train_op, cross_entropy_loss = optimize(model_output, labels, learning_rate, CLASSES_N)
 
-        train_nn(sess, FLAGS.epochs, FLAGS.batch_size, get_batches_fn, batches_n, train_op, cross_entropy_loss,
-                 image_input, labels, keep_prob, learning_rate, True, True)
+        iou_mean, iou_op = iou_metric(model_output, labels, CLASSES_N)
+
+        train_nn(sess, FLAGS.epochs, FLAGS.batch_size, get_batches_fn, batches_n, train_op, cross_entropy_loss, iou_op,
+                 iou_mean, image_input, labels, keep_prob, learning_rate, True, True)
 
         helper.save_inference_samples(FLAGS.runs_dir, FLAGS.data_dir, sess, IMAGE_SHAPE, logits, keep_prob, image_input)
 
