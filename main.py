@@ -144,7 +144,7 @@ def optimize(nn_last_layer, labels, learning_rate, num_classes):
     return logits, train_op, cross_entropy_loss
 
 
-def write_model(saver, sess, epoch=None):
+def write_model(sess, saver, epoch=None):
     file_name = MODEL_NAME
     if epoch is not None:
         file_name += '_ep_' + str(epoch)
