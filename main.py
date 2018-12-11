@@ -10,6 +10,8 @@ from distutils.version import LooseVersion
 import project_tests as tests
 from args import FLAGS
 from datetime import datetime
+import pickle
+import scipy.misc
 
 LOGS_DIR = 'logs'
 MODEL_DIR = 'models'
@@ -29,17 +31,14 @@ assert LooseVersion(tf.__version__) >= LooseVersion('1.0'), 'Please use TensorFl
 
 print('TensorFlow Version: {}'.format(tf.__version__))
 
-
 def warn_msg(message):
     print("[Warning]: {}".format(message))
-
 
 # Check for a GPU
 if not tf.test.gpu_device_name():
     warn_msg('No GPU found. Please use a GPU to train your neural network.')
 else:
     print('Default GPU Device: {}'.format(tf.test.gpu_device_name()))
-
 
 def load_vgg(sess, vgg_path):
     """
@@ -60,7 +59,6 @@ def load_vgg(sess, vgg_path):
 
     return image_input, keep_prob, layer3_out, layer4_out, layer7_out
 
-
 def conv_1x1(x, filters, name, inizializer=None, regularizer=None):
     return tf.layers.conv2d(x,
                             filters=filters,
@@ -71,7 +69,6 @@ def conv_1x1(x, filters, name, inizializer=None, regularizer=None):
                             kernel_regularizer=regularizer,
                             name=name)
 
-
 def up_sample(x, filters, name, kernel_size=(4, 4), strides=(2, 2), inizializer=None, regularizer=None):
     return tf.layers.conv2d_transpose(x,
                                       filters=filters,
@@ -81,7 +78,6 @@ def up_sample(x, filters, name, kernel_size=(4, 4), strides=(2, 2), inizializer=
                                       kernel_initializer=inizializer,
                                       kernel_regularizer=regularizer,
                                       name=name)
-
 
 def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     """
@@ -120,7 +116,6 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
 
     return layer3_up
 
-
 def optimize(nn_last_layer, labels, learning_rate, num_classes):
     """
     Build the TensorFLow loss and optimizer operations.
@@ -131,38 +126,39 @@ def optimize(nn_last_layer, labels, learning_rate, num_classes):
     """
     logits = tf.reshape(nn_last_layer, (-1, num_classes))
 
-    # sparse_softmax_cross_entropy_with_logits
-    cross_entropy = tf.nn.softmax_cross_entropy_with_logits(
-        logits=logits, labels=labels)
+    cross_entropy = tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=labels)
 
     # Applies L2 regularization
     cross_entropy_loss = tf.reduce_mean(cross_entropy) + tf.losses.get_regularization_loss()
 
     optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
+    #optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate, epsilon=0.1)
+
     train_op = optimizer.minimize(cross_entropy_loss)
 
     return logits, train_op, cross_entropy_loss
 
-
-def write_model(sess, saver, model_folder, epoch=None):
-    file_name = MODEL_NAME
-    if epoch is not None:
-        file_name += '_ep_' + str(epoch)
-    file_name += MODEL_EXT
+def write_model(sess, saver, model_folder, step):
+    file_name = MODEL_NAME + MODEL_EXT
     file_path = os.path.join(os.path.join(MODEL_DIR, model_folder), file_name)
-    save_path = saver.save(sess, file_path)
+    save_path = saver.save(sess, file_path, global_step = step)
     print('Model saved in path: {}'.format(save_path))
 
-
-def load_model(sess):
+def load_model(sess, model_path = None):
     saver = tf.train.Saver()
-    file_name = MODEL_NAME + MODEL_EXT
-    file_path = os.path.join(MODEL_DIR, file_name)
-    if not os.path.isfile(file_path):
-        raise ValueError('The model {} does not exist'.format(file_path))
-    saver.restore(sess, file_name)
-    print('Model restored from path: {}'.format(file_path))
 
+    if model_path is None:
+        model_path = os.path.join(MODEL_DIR, MODEL_NAME + MODEL_EXT)
+
+    saver.restore(sess, model_path)
+
+    print('Model restored from path: {}'.format(model_path))
+
+def write_loss_log(loss_log, model_folder):
+    file_path = os.path.join(os.path.join(MODEL_DIR, model_folder), 'loss.log')
+    with open(file_path, 'wb') as f:
+        pickle.dump(loss_log, f, protocol = pickle.HIGHEST_PROTOCOL)
+    print('Loss log saved to: {}'.format(file_path))
 
 def train_nn(sess, epochs, batch_size, get_batches_fn, batches_n, train_op, cross_entropy_loss, image_input,
              labels, keep_prob, learning_rate, save_model=False, tensorboard=False):
@@ -189,13 +185,13 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, batches_n, train_op, cros
     ))
 
     if save_model and FLAGS.restore:
-        load_model(sess)
+        load_model(sess, FLAGS.model)
     else:
         sess.run(tf.global_variables_initializer())
         sess.run(tf.local_variables_initializer())
 
     if save_model:
-        saver = tf.train.Saver()
+        saver = tf.train.Saver(max_to_keep = 20)
     else:
         saver = None
 
@@ -221,7 +217,7 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, batches_n, train_op, cros
         curr_epoch = epoch + 1
         batches = tqdm(get_batches_fn(batch_size),
                        desc='Epoch {}/{} (Loss: N/A, Step: N/A)'.format(curr_epoch, epochs),
-                       unit='batch',
+                       unit='batches',
                        total=batches_n)
 
         losses = []
@@ -250,16 +246,16 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, batches_n, train_op, cros
             batches.set_description('Epoch {}/{} (Loss: {:.4f}, Step: {})'.format(curr_epoch, epochs, training_loss, step))
 
         if epoch % 5 == 0 and saver is not None:
-            write_model(sess, saver, model_folder, curr_epoch)
+            write_model(sess, saver, model_folder, step)
 
     elapsed = time.time() - start
     print("Training finished ({:.1f} s)".format(elapsed))
 
     if saver is not None:
-        write_model(sess, saver, model_folder)
+        write_model(sess, saver, model_folder, step)
+        write_loss_log(loss_log, model_folder)
 
-    return loss_log
-
+    return model_folder
 
 def run_tests():
     helper.maybe_download_pretrained_vgg(FLAGS.data_dir)
@@ -269,36 +265,72 @@ def run_tests():
     tests.test_optimize(optimize)
     tests.test_train_nn(train_nn)
 
-
-def run():
-
-    # Download pretrained vgg model
-    vgg_path = helper.maybe_download_pretrained_vgg(FLAGS.data_dir)
-    # Create function to get batches
-    get_batches_fn, samples_n = helper.gen_batch_function(
-        os.path.join(FLAGS.data_dir, 'data_road/training'), IMAGE_SHAPE)
-
-    batches_n = int(math.ceil(float(samples_n) / FLAGS.batch_size))
-
+def get_config():
     config = None
 
     if FLAGS.cpu:
         warn_msg("Forcing CPU usage")
         config = tf.ConfigProto(device_count={'GPU': 0})
 
-    with tf.Session(config=config) as sess:
+    return config
 
-        labels = tf.placeholder(
-            tf.float32, [None, None, None, CLASSES_N], 'input_labels')
+def process_image(file_path):
+
+    if not os.path.isfile(file_path):
+        raise ValueError('The file {} does not exist'.format(file_path))
+
+    vgg_path = helper.maybe_download_pretrained_vgg(FLAGS.data_dir)
+
+    with tf.Session(config=get_config()) as sess:
+        image_input, keep_prob, layer3, layer4, layer7 = load_vgg(sess, vgg_path)
+        model_output = layers(layer3, layer4, layer7, CLASSES_N)
+        logits = tf.reshape(model_output, (-1, CLASSES_N))
+
+        load_model(sess, FLAGS.model)
+
+        print('Processing image: {}'.format(file_path))
+        name, image = helper.process_image(file_path, sess, logits, keep_prob, image_input, IMAGE_SHAPE)
+        scipy.misc.imsave(os.path.join(FLAGS.runs_dir, name), image)
+
+def process_video(file_path):
+    # TODO
+    pass
+
+def run_testing():
+
+    vgg_path = helper.maybe_download_pretrained_vgg(FLAGS.data_dir)
+
+    with tf.Session(config=get_config()) as sess:
+        image_input, keep_prob, layer3, layer4, layer7 = load_vgg(sess, vgg_path)
+        model_output = layers(layer3, layer4, layer7, CLASSES_N)
+        logits = tf.reshape(model_output, (-1, CLASSES_N))
+
+        load_model(sess, FLAGS.model)
+
+        helper.save_inference_samples(FLAGS.runs_dir, FLAGS.data_dir, sess, IMAGE_SHAPE, logits, keep_prob, image_input)
+
+def run():
+
+    # Download pretrained vgg model
+    vgg_path = helper.maybe_download_pretrained_vgg(FLAGS.data_dir)
+    # Create function to get batches
+    dataset_path = os.path.join(FLAGS.data_dir, 'data_road/training')
+    get_batches_fn, samples_n = helper.gen_batch_function(dataset_path, IMAGE_SHAPE)
+
+    batches_n = int(math.ceil(float(samples_n) / FLAGS.batch_size))
+
+    with tf.Session(config=get_config()) as sess:
+
+        labels = tf.placeholder(tf.float32, [None, None, None, CLASSES_N], 'input_labels')
         learning_rate = tf.placeholder(tf.float32, name='learning_rate')
 
         image_input, keep_prob, layer3, layer4, layer7 = load_vgg(sess, vgg_path)
         model_output = layers(layer3, layer4, layer7, CLASSES_N)
 
         logits, train_op, cross_entropy_loss = optimize(model_output,
-                                                                     labels,
-                                                                     learning_rate,
-                                                                     CLASSES_N)
+                                                        labels,
+                                                        learning_rate,
+                                                        CLASSES_N)
 
         train_nn(sess,
                  FLAGS.epochs,
@@ -313,13 +345,19 @@ def run():
                  True,
                  True)
 
-        helper.save_inference_samples(
-            FLAGS.runs_dir, FLAGS.data_dir, sess, IMAGE_SHAPE, logits, keep_prob, image_input)
+        helper.save_inference_samples(FLAGS.runs_dir, FLAGS.data_dir, sess, IMAGE_SHAPE, logits, keep_prob, image_input)
 
 
 def main(_):
-    run_tests()
-    run()
+    if FLAGS.image:
+        process_image(FLAGS.image)
+    elif FLAGS.video:
+        process_video(FLAGS.video)
+    elif FLAGS.train:
+        run_tests()
+        run()
+    else:
+        run_testing()
 
 
 if __name__ == '__main__':

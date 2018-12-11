@@ -105,3 +105,4 @@ RUNS/
 # VS Code
 .vscode/
 logs/
+models/
