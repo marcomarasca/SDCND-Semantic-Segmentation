@@ -144,12 +144,12 @@ def optimize(nn_last_layer, labels, learning_rate, num_classes):
     return logits, train_op, cross_entropy_loss
 
 
-def write_model(sess, saver, epoch=None):
+def write_model(sess, saver, model_folder, epoch=None):
     file_name = MODEL_NAME
     if epoch is not None:
         file_name += '_ep_' + str(epoch)
     file_name += MODEL_EXT
-    file_path = os.path.join(MODEL_DIR, file_name)
+    file_path = os.path.join(os.path.join(MODEL_DIR, model_folder), file_name)
     save_path = saver.save(sess, file_path)
     print('Model saved in path: {}'.format(save_path))
 
@@ -199,12 +199,13 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, batches_n, train_op, cros
     else:
         saver = None
 
+    model_folder = datetime.now().strftime('%Y%m%d_%H%M%S')
     if tensorboard:
         tf.summary.scalar('learning_rate', learning_rate)
         tf.summary.scalar('total_loss', cross_entropy_loss) 
 
         summary = tf.summary.merge_all()
-        writer_folder = os.path.join(LOGS_DIR, datetime.now().strftime('%Y%m%d_%H%M%S'))
+        writer_folder = os.path.join(LOGS_DIR, model_folder)
         writer = tf.summary.FileWriter(writer_folder, sess.graph)
     else:
         summary = None
@@ -249,13 +250,13 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, batches_n, train_op, cros
             batches.set_description('Epoch {}/{} (Loss: {:.4f}, Step: {})'.format(curr_epoch, epochs, training_loss, step))
 
         if epoch % 5 == 0 and saver is not None:
-            write_model(sess, saver, curr_epoch)
+            write_model(sess, saver, model_folder, curr_epoch)
 
     elapsed = time.time() - start
     print("Training finished ({:.1f} s)".format(elapsed))
 
     if saver is not None:
-        write_model(sess, saver)
+        write_model(sess, saver, model_folder)
 
     return loss_log
 
