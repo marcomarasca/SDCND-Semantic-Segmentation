@@ -147,7 +147,7 @@ def optimize(nn_last_layer, labels, learning_rate, num_classes):
 def write_model(saver, sess, epoch=None):
     file_name = MODEL_NAME
     if epoch is not None:
-        file_name += '_ep_' + epoch
+        file_name += '_ep_' + str(epoch)
     file_name += MODEL_EXT
     file_path = os.path.join(MODEL_DIR, file_name)
     save_path = saver.save(sess, file_path)
