@@ -27,18 +27,23 @@ if not os.path.isdir(LOGS_DIR):
     os.makedirs(LOGS_DIR)
 
 # Check TensorFlow Version
-assert LooseVersion(tf.__version__) >= LooseVersion('1.0'), 'Please use TensorFlow version 1.0 or newer.  You are using {}'.format(tf.__version__)
+assert LooseVersion(
+    tf.__version__) >= LooseVersion('1.0'), 'Please use TensorFlow version 1.0 or newer.  You are using {}'.format(
+        tf.__version__)
 
 print('TensorFlow Version: {}'.format(tf.__version__))
 
+
 def warn_msg(message):
     print("[Warning]: {}".format(message))
+
 
 # Check for a GPU
 if not tf.test.gpu_device_name():
     warn_msg('No GPU found. Please use a GPU to train your neural network.')
 else:
     print('Default GPU Device: {}'.format(tf.test.gpu_device_name()))
+
 
 def load_vgg(sess, vgg_path):
     """
@@ -59,25 +64,30 @@ def load_vgg(sess, vgg_path):
 
     return image_input, keep_prob, layer3_out, layer4_out, layer7_out
 
+
 def conv_1x1(x, filters, name, inizializer=None, regularizer=None):
-    return tf.layers.conv2d(x,
-                            filters=filters,
-                            kernel_size=(1, 1),
-                            strides=(1, 1),
-                            padding='same',
-                            kernel_initializer=inizializer,
-                            kernel_regularizer=regularizer,
-                            name=name)
+    return tf.layers.conv2d(
+        x,
+        filters=filters,
+        kernel_size=(1, 1),
+        strides=(1, 1),
+        padding='same',
+        kernel_initializer=inizializer,
+        kernel_regularizer=regularizer,
+        name=name)
+
 
 def up_sample(x, filters, name, kernel_size=(4, 4), strides=(2, 2), inizializer=None, regularizer=None):
-    return tf.layers.conv2d_transpose(x,
-                                      filters=filters,
-                                      kernel_size=kernel_size,
-                                      strides=strides,
-                                      padding='same',
-                                      kernel_initializer=inizializer,
-                                      kernel_regularizer=regularizer,
-                                      name=name)
+    return tf.layers.conv2d_transpose(
+        x,
+        filters=filters,
+        kernel_size=kernel_size,
+        strides=strides,
+        padding='same',
+        kernel_initializer=inizializer,
+        kernel_regularizer=regularizer,
+        name=name)
+
 
 def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     """
@@ -95,26 +105,28 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     #vgg_layer4_scaled = tf.multiply(vgg_layer4_out, 0.01, name='layer4_scaled')
 
     # 1x1 convolutions to the encoder layers
-    layer3_1x1 = conv_1x1(vgg_layer3_out, num_classes, 'layer3_1x1',
-                          inizializer=inizializer, regularizer=regularizer)
-    layer4_1x1 = conv_1x1(vgg_layer4_out, num_classes, 'layer4_1x1',
-                          inizializer=inizializer, regularizer=regularizer)
-    layer7_1x1 = conv_1x1(vgg_layer7_out, num_classes, 'layer7_1x1',
-                          inizializer=inizializer, regularizer=regularizer)
+    layer3_1x1 = conv_1x1(vgg_layer3_out, num_classes, 'layer3_1x1', inizializer=inizializer, regularizer=regularizer)
+    layer4_1x1 = conv_1x1(vgg_layer4_out, num_classes, 'layer4_1x1', inizializer=inizializer, regularizer=regularizer)
+    layer7_1x1 = conv_1x1(vgg_layer7_out, num_classes, 'layer7_1x1', inizializer=inizializer, regularizer=regularizer)
 
     # Upsample to decode into final image size
-    layer7_up = up_sample(layer7_1x1, num_classes, 'layer7_up',
-                          inizializer=inizializer, regularizer=regularizer)
+    layer7_up = up_sample(layer7_1x1, num_classes, 'layer7_up', inizializer=inizializer, regularizer=regularizer)
 
     layer4_skip = tf.add(layer7_up, layer4_1x1, name="layer4_skip")
-    layer4_up = up_sample(layer4_skip, num_classes, 'layer4_up',
-                          inizializer=inizializer, regularizer=regularizer)
+    layer4_up = up_sample(layer4_skip, num_classes, 'layer4_up', inizializer=inizializer, regularizer=regularizer)
 
     layer3_skip = tf.add(layer4_up, layer3_1x1, name='layer3_skip')
-    layer3_up = up_sample(layer3_skip, num_classes, 'layer3_up', kernel_size=(
-        16, 16), strides=(8, 8), inizializer=inizializer, regularizer=regularizer)
+    layer3_up = up_sample(
+        layer3_skip,
+        num_classes,
+        'layer3_up',
+        kernel_size=(16, 16),
+        strides=(8, 8),
+        inizializer=inizializer,
+        regularizer=regularizer)
 
     return layer3_up
+
 
 def optimize(nn_last_layer, labels, learning_rate, num_classes):
     """
@@ -138,13 +150,15 @@ def optimize(nn_last_layer, labels, learning_rate, num_classes):
 
     return logits, train_op, cross_entropy_loss
 
+
 def write_model(sess, saver, model_folder, step):
     file_name = MODEL_NAME + MODEL_EXT
     file_path = os.path.join(os.path.join(MODEL_DIR, model_folder), file_name)
-    save_path = saver.save(sess, file_path, global_step = step)
+    save_path = saver.save(sess, file_path, global_step=step)
     print('Model saved in path: {}'.format(save_path))
 
-def load_model(sess, model_path = None):
+
+def load_model(sess, model_path=None):
     saver = tf.train.Saver()
 
     if model_path is None:
@@ -154,14 +168,27 @@ def load_model(sess, model_path = None):
 
     print('Model restored from path: {}'.format(model_path))
 
+
 def write_loss_log(loss_log, model_folder):
     file_path = os.path.join(os.path.join(MODEL_DIR, model_folder), 'loss.log')
     with open(file_path, 'wb') as f:
-        pickle.dump(loss_log, f, protocol = pickle.HIGHEST_PROTOCOL)
+        pickle.dump(loss_log, f, protocol=pickle.HIGHEST_PROTOCOL)
     print('Loss log saved to: {}'.format(file_path))
 
-def train_nn(sess, epochs, batch_size, get_batches_fn, batches_n, train_op, cross_entropy_loss, image_input,
-             labels, keep_prob, learning_rate, save_model=False, tensorboard=False):
+
+def train_nn(sess,
+             epochs,
+             batch_size,
+             get_batches_fn,
+             batches_n,
+             train_op,
+             cross_entropy_loss,
+             image_input,
+             labels,
+             keep_prob,
+             learning_rate,
+             save_model=False,
+             tensorboard=False):
     """
     Train neural network and print out the loss during training.
     :param sess: TF Session
@@ -177,12 +204,7 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, batches_n, train_op, cros
     """
 
     print('Training = (Epochs: {}, Batch Size: {}, Learning Rate: {}, Dropout: {}, L2 Reg: {})'.format(
-        FLAGS.epochs,
-        FLAGS.batch_size,
-        FLAGS.learning_rate,
-        FLAGS.dropout,
-        FLAGS.l2_reg
-    ))
+        FLAGS.epochs, FLAGS.batch_size, FLAGS.learning_rate, FLAGS.dropout, FLAGS.l2_reg))
 
     if save_model and FLAGS.restore:
         load_model(sess, FLAGS.model)
@@ -191,14 +213,14 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, batches_n, train_op, cros
         sess.run(tf.local_variables_initializer())
 
     if save_model:
-        saver = tf.train.Saver(max_to_keep = 20)
+        saver = tf.train.Saver(max_to_keep=20)
     else:
         saver = None
 
     model_folder = datetime.now().strftime('%Y%m%d_%H%M%S')
     if tensorboard:
         tf.summary.scalar('learning_rate', learning_rate)
-        tf.summary.scalar('total_loss', cross_entropy_loss) 
+        tf.summary.scalar('total_loss', cross_entropy_loss)
 
         summary = tf.summary.merge_all()
         writer_folder = os.path.join(LOGS_DIR, model_folder)
@@ -215,10 +237,11 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, batches_n, train_op, cros
     for epoch in range(epochs):
 
         curr_epoch = epoch + 1
-        batches = tqdm(get_batches_fn(batch_size),
-                       desc='Epoch {}/{} (Loss: N/A, Step: N/A)'.format(curr_epoch, epochs),
-                       unit='batches',
-                       total=batches_n)
+        batches = tqdm(
+            get_batches_fn(batch_size),
+            desc='Epoch {}/{} (Loss: N/A, Step: N/A)'.format(curr_epoch, epochs),
+            unit='batches',
+            total=batches_n)
 
         losses = []
 
@@ -243,7 +266,8 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, batches_n, train_op, cros
             training_loss = np.mean(losses)
             loss_log.append(training_loss)
 
-            batches.set_description('Epoch {}/{} (Loss: {:.4f}, Step: {})'.format(curr_epoch, epochs, training_loss, step))
+            batches.set_description('Epoch {}/{} (Loss: {:.4f}, Step: {})'.format(curr_epoch, epochs, training_loss,
+                                                                                  step))
 
         if epoch % 5 == 0 and saver is not None:
             write_model(sess, saver, model_folder, step)
@@ -257,6 +281,7 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, batches_n, train_op, cros
 
     return model_folder
 
+
 def run_tests():
     helper.maybe_download_pretrained_vgg(FLAGS.data_dir)
     tests.test_for_kitti_dataset(FLAGS.data_dir)
@@ -264,6 +289,7 @@ def run_tests():
     tests.test_layers(layers)
     tests.test_optimize(optimize)
     tests.test_train_nn(train_nn)
+
 
 def get_config():
     config = None
@@ -273,6 +299,7 @@ def get_config():
         config = tf.ConfigProto(device_count={'GPU': 0})
 
     return config
+
 
 def process_image(file_path):
 
@@ -292,9 +319,11 @@ def process_image(file_path):
         name, image = helper.process_image(file_path, sess, logits, keep_prob, image_input, IMAGE_SHAPE)
         scipy.misc.imsave(os.path.join(FLAGS.runs_dir, name), image)
 
+
 def process_video(file_path):
     # TODO
     pass
+
 
 def run_testing():
 
@@ -308,6 +337,7 @@ def run_testing():
         load_model(sess, FLAGS.model)
 
         helper.save_inference_samples(FLAGS.runs_dir, FLAGS.data_dir, sess, IMAGE_SHAPE, logits, keep_prob, image_input)
+
 
 def run():
 
@@ -327,23 +357,10 @@ def run():
         image_input, keep_prob, layer3, layer4, layer7 = load_vgg(sess, vgg_path)
         model_output = layers(layer3, layer4, layer7, CLASSES_N)
 
-        logits, train_op, cross_entropy_loss = optimize(model_output,
-                                                        labels,
-                                                        learning_rate,
-                                                        CLASSES_N)
+        logits, train_op, cross_entropy_loss = optimize(model_output, labels, learning_rate, CLASSES_N)
 
-        train_nn(sess,
-                 FLAGS.epochs,
-                 FLAGS.batch_size,
-                 get_batches_fn, batches_n,
-                 train_op,
-                 cross_entropy_loss,
-                 image_input,
-                 labels,
-                 keep_prob,
-                 learning_rate,
-                 True,
-                 True)
+        train_nn(sess, FLAGS.epochs, FLAGS.batch_size, get_batches_fn, batches_n, train_op, cross_entropy_loss,
+                 image_input, labels, keep_prob, learning_rate, True, True)
 
         helper.save_inference_samples(FLAGS.runs_dir, FLAGS.data_dir, sess, IMAGE_SHAPE, logits, keep_prob, image_input)
 

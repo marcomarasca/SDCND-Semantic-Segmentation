@@ -18,6 +18,7 @@ def test_safe(func):
     """
     Isolate tests
     """
+
     def func_wrapper(*args):
         with tf.Graph().as_default():
             result = func(*args)
@@ -49,8 +50,9 @@ def _assert_tensor_shape(tensor, shape, display_name):
 
     tensor_shape = tensor.get_shape().as_list() if len(shape) else []
 
-    wrong_dimension = [ten_dim for ten_dim, cor_dim in zip(tensor_shape, shape)
-                       if cor_dim is not None and ten_dim != cor_dim]
+    wrong_dimension = [
+        ten_dim for ten_dim, cor_dim in zip(tensor_shape, shape) if cor_dim is not None and ten_dim != cor_dim
+    ]
     assert not wrong_dimension, \
         '{} has wrong shape.  Found {}'.format(display_name, tensor_shape)
 
@@ -59,6 +61,7 @@ class TmpMock(object):
     """
     Mock a attribute.  Restore attribute when exiting scope.
     """
+
     def __init__(self, module, attrib_name):
         self.original_attrib = deepcopy(getattr(module, attrib_name))
         setattr(module, attrib_name, mock.MagicMock())
@@ -131,7 +134,7 @@ def test_optimize(optimize):
     learning_rate = tf.placeholder(tf.float32)
     logits, train_op, cross_entropy_loss = optimize(layers_output, labels, learning_rate, num_classes)
 
-    _assert_tensor_shape(logits, [2*3*4, num_classes], 'Logits')
+    _assert_tensor_shape(logits, [2 * 3 * 4, num_classes], 'Logits')
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
@@ -174,7 +177,8 @@ def test_train_nn(train_nn):
             'image_input': image_input,
             'labels': labels,
             'keep_prob': keep_prob,
-            'learning_rate': learning_rate}
+            'learning_rate': learning_rate
+        }
         _prevent_print(train_nn, parameters)
 
 
