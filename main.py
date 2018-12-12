@@ -191,7 +191,7 @@ def _conv_1x1(x, filters, name, regularizer=None):
         kernel_size=(1, 1),
         strides=(1, 1),
         padding='same',
-        kernel_initializer=tf.truncated_normal_initializer(stddev=0.01),
+        kernel_initializer=tf.truncated_normal_initializer(stddev=0.01, seed=FLAGS.seed),
         kernel_regularizer=regularizer,
         name=name)
 
@@ -203,7 +203,7 @@ def _up_sample(x, filters, name, kernel_size, strides, regularizer=None):
         kernel_size=kernel_size,
         strides=strides,
         padding='same',
-        kernel_initializer=tf.truncated_normal_initializer(stddev=0.01),
+        kernel_initializer=tf.truncated_normal_initializer(stddev=0.01, seed=FLAGS.seed),
         kernel_regularizer=regularizer,
         name=name)
 
