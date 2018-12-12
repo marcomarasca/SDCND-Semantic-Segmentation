@@ -18,6 +18,7 @@ import tensorflow as tf
 from glob import glob
 from urllib.request import urlretrieve
 from tqdm import tqdm
+from args import FLAGS
 
 
 class DLProgress(tqdm):
@@ -76,6 +77,10 @@ def maybe_download_pretrained_vgg(data_dir):
 
     return vgg_path
 
+def limit_samples(paths):
+    if FLAGS.samples_limit is not None:
+        paths = paths[:FLAGS.samples_limit]
+    return paths
 
 def gen_batch_function(data_folder, image_shape):
     """
@@ -91,6 +96,8 @@ def gen_batch_function(data_folder, image_shape):
         for path in glob(os.path.join(data_folder, 'gt_image_2', '*_road_*.png'))
     }
     background_color = np.array([255, 0, 0])
+
+    image_paths = limit_samples(image_paths)
 
     samples_n = len(image_paths)
 
@@ -182,9 +189,11 @@ def gen_test_output(sess, logits, keep_prob, image_pl, data_folder, image_shape)
 	:return: Output for for each test image
 	"""
 
-    images = glob(os.path.join(data_folder, 'image_2', '*.png'))
+    image_paths = glob(os.path.join(data_folder, 'image_2', '*.png'))
 
-    for image_file in tqdm(images, desc='Processing: ', unit='images', total=len(images)):
+    image_paths = limit_samples(image_paths)
+
+    for image_file in tqdm(image_paths, desc='Processing: ', unit='images', total=len(image_paths)):
         yield process_image_file(image_file, sess, logits, keep_prob, image_pl, image_shape)
 
 

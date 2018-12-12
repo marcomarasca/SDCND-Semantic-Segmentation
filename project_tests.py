@@ -34,9 +34,9 @@ def _prevent_print(function, params):
     :param function: The function in which to repress any prints to the terminal
     :param params: Parameters to feed into function
     """
-    #sys.stdout = open(os.devnull, "w")
+    sys.stdout = open(os.devnull, "w")
     function(**params)
-    #sys.stdout = sys.__stdout__
+    sys.stdout = sys.__stdout__
 
 
 def _assert_tensor_shape(tensor, shape, display_name):
@@ -132,7 +132,7 @@ def test_optimize(optimize):
     layers_output = tf.Variable(tf.zeros(shape))
     labels = tf.placeholder(tf.float32, [None, None, None, num_classes])
     learning_rate = tf.placeholder(tf.float32)
-    logits, train_op, cross_entropy_loss = optimize(layers_output, labels, learning_rate, num_classes)
+    logits, train_op, cross_entropy_loss, global_step = optimize(layers_output, labels, learning_rate, num_classes)
 
     _assert_tensor_shape(logits, [2 * 3 * 4, num_classes], 'Logits')
 
@@ -158,6 +158,7 @@ def test_train_nn(train_nn):
         shape = [batch_size_param, 2, 3, 2]
         return np.arange(np.prod(shape)).reshape(shape)
 
+    global_step = tf.Variable(0, name = 'global_step')
     train_op = tf.constant(0)
     cross_entropy_loss = tf.constant(10.11)
     image_input = tf.placeholder(tf.float32, name='image_input')
@@ -170,6 +171,7 @@ def test_train_nn(train_nn):
     with tf.Session() as sess:
         parameters = {
             'sess': sess,
+            'global_step': global_step,
             'epochs': epochs,
             'batch_size': batch_size,
             'get_batches_fn': get_batches_fn,
