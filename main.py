@@ -272,8 +272,7 @@ def optimize(nn_last_layer, labels, learning_rate, num_classes):
     # Applies L2 regularization
     cross_entropy_loss = tf.reduce_mean(cross_entropy) + tf.losses.get_regularization_loss()
 
-    optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
-    #optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate, epsilon=0.1)
+    optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate, epsilon=FLAGS.eps)
 
     global_step = tf.Variable(initial_value=0, trainable=False, name='global_step')
 
