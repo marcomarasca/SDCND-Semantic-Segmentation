@@ -7,12 +7,14 @@ import math
 import scipy.misc
 import time
 import imageio
+import numpy as np
 from tqdm import tqdm
 from tqdm import trange
 from distutils.version import LooseVersion
 
 import helper
 import project_tests as tests
+import augmentation
 
 KERNEL_STDEV = 0.01
 SCALE_L_3 = 0.0001
@@ -427,7 +429,7 @@ def run():
     # Download pretrained vgg model
     vgg_path = helper.maybe_download_pretrained_vgg(FLAGS.data_dir)
     # Create function to get batches
-    dataset_path = os.path.join(FLAGS.data_dir, 'data_road/training')
+    dataset_path = os.path.join(FLAGS.data_dir, 'data_road', 'training')
     get_batches_fn, samples_n = helper.gen_batch_function(dataset_path, IMAGE_SHAPE)
 
     batches_n = int(math.ceil(float(samples_n) / FLAGS.batch_size))
@@ -457,7 +459,12 @@ def main(_):
 
     # Set a seed for reproducibility
     if FLAGS.seed is not None:
+        np.random.seed(FLAGS.seed)
         tf.set_random_seed(FLAGS.seed)
+
+    if FLAGS.augment:
+        augmentation.augment_dataset(os.path.join(FLAGS.data_dir, 'data_road', 'training'), FLAGS.augment)
+        return
 
     if FLAGS.tests:
         run_tests()
