@@ -103,6 +103,8 @@ def gen_batch_function(data_folder, image_shape):
 
     samples_n = len(image_paths)
 
+    rnd = random.Random(FLAGS.seed)
+
     def get_batches_fn(batch_size):
         """
 		Create batches of training data
@@ -110,7 +112,7 @@ def gen_batch_function(data_folder, image_shape):
 		:return: Batches of training data
 		"""
         # Shuffle training data
-        random.shuffle(image_paths)
+        rnd.shuffle(image_paths)
         # Loop through batches and grab images, yielding each batch
         for batch_i in range(0, samples_n, batch_size):
             images = []

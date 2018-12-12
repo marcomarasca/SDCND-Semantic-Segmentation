@@ -570,6 +570,11 @@ def run():
 
 
 def main(_):
+
+    # Set a seed for reproducibility
+    if FLAGS.seed is not None:
+        tf.set_random_seed(FLAGS.seed)
+
     if FLAGS.tests:
         run_tests()
     if FLAGS.image:
