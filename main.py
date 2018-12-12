@@ -179,7 +179,7 @@ def _model_folder():
     if model_folder is None:
         file_name = 'm_e=' + str(FLAGS.epochs) + '_bs=' + str(FLAGS.batch_size) + '_lr=' + str(
             FLAGS.learning_rate) + '_do=' + str(FLAGS.dropout) + '_l2=' + str(FLAGS.l2_reg) + '_eps=' + str(
-                FLAGS.eps) + '_scale=' + 'on' if FLAGS.scale else 'off'
+                FLAGS.eps) + '_scale=' + ('on' if FLAGS.scale else 'off')
         model_folder = os.path.join(MODEL_DIR, file_name)
     return model_folder
 
@@ -306,9 +306,7 @@ def optimize(nn_last_layer, labels, learning_rate, num_classes):
     return logits, train_op, cross_entropy_loss, global_step
 
 
-def metrics(model_output, labels, num_classes):
-
-    output_softmax = tf.nn.softmax(model_output, name='output_softmax')
+def metrics(output_softmax, labels, num_classes):
     logits_argmax = tf.argmax(output_softmax, axis=-1, name='output_argmax')
     labels_argmax = tf.argmax(labels, axis=-1, name='labels_argmax')
 
@@ -320,6 +318,13 @@ def metrics(model_output, labels, num_classes):
     return metrics
 
 
+def prediction(model_output):
+    output_softmax = tf.nn.softmax(model_output, name='output_softmax')
+    prediction_class = tf.cast(tf.greater(output_softmax, 0.5), dtype=tf.float32)
+
+    return output_softmax, tf.cast(tf.argmax(prediction_class, axis=3), dtype=tf.uint8)
+
+
 def train_nn(sess,
              global_step,
              epochs,
@@ -328,6 +333,7 @@ def train_nn(sess,
              batches_n,
              train_op,
              cross_entropy_loss,
+             prediction_op,
              metrics,
              image_input,
              labels,
@@ -373,6 +379,10 @@ def train_nn(sess,
         tf.summary.scalar('iou', iou_mean)
         tf.summary.scalar('acc', acc_mean)
         tf.summary.text('hyperparameters', config_tensor)
+        tf.summary.image(
+            'prediction_image',
+            tf.expand_dims(tf.div(tf.cast(prediction_op, dtype=tf.float32), CLASSES_N), -1),
+            max_outputs=2)
         summary = tf.summary.merge_all()
         train_writer = _summary_writer(sess, model_folder)
 
@@ -581,10 +591,13 @@ def run():
 
         logits, train_op, cross_entropy_loss, global_step = optimize(model_output, labels, learning_rate, CLASSES_N)
 
-        metrics_dict = metrics(model_output, labels, CLASSES_N)
+        output_softmax, prediction_op = prediction(model_output)
+
+        metrics_dict = metrics(output_softmax, labels, CLASSES_N)
 
         train_nn(sess, global_step, FLAGS.epochs, FLAGS.batch_size, get_batches_fn, batches_n, train_op,
-                 cross_entropy_loss, metrics_dict, image_input, labels, keep_prob, learning_rate, True, True)
+                 cross_entropy_loss, prediction_op, metrics_dict, image_input, labels, keep_prob, learning_rate, True,
+                 True)
 
         helper.save_inference_samples(FLAGS.runs_dir, FLAGS.data_dir, sess, IMAGE_SHAPE, logits, keep_prob, image_input)
 

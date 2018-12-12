@@ -165,6 +165,7 @@ def test_train_nn(train_nn):
     labels = tf.placeholder(tf.float32, name='labels')
     keep_prob = tf.placeholder(tf.float32, name='keep_prob')
     learning_rate = tf.placeholder(tf.float32, name='learning_rate')
+    prediction_op = tf.constant(0)
 
     metrics = {}
 
@@ -181,6 +182,7 @@ def test_train_nn(train_nn):
             'batches_n': batches_n,
             'train_op': train_op,
             'cross_entropy_loss': cross_entropy_loss,
+            'prediction_op': prediction_op,
             'metrics': metrics,
             'image_input': image_input,
             'labels': labels,
