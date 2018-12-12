@@ -20,6 +20,9 @@ mpl.use('Agg')
 import matplotlib.pyplot as plt
 
 LOGS_DIR = 'logs'
+KERNEL_STDEV = 0.01
+SCALE_L_3 = 0.0001
+SCALE_L_4 = 0.01
 MODELS_LIMIT = 20
 MODELS_FREQ = 5
 MODEL_DIR = 'models'
@@ -205,7 +208,7 @@ def _conv_1x1(x, filters, name, regularizer=None):
         kernel_size=(1, 1),
         strides=(1, 1),
         padding='same',
-        kernel_initializer=tf.truncated_normal_initializer(stddev=0.01, seed=FLAGS.seed),
+        kernel_initializer=tf.truncated_normal_initializer(stddev=KERNEL_STDEV, seed=FLAGS.seed),
         kernel_regularizer=regularizer,
         name=name)
 
@@ -217,7 +220,7 @@ def _up_sample(x, filters, name, kernel_size, strides, regularizer=None):
         kernel_size=kernel_size,
         strides=strides,
         padding='same',
-        kernel_initializer=tf.truncated_normal_initializer(stddev=0.01, seed=FLAGS.seed),
+        kernel_initializer=tf.truncated_normal_initializer(stddev=KERNEL_STDEV, seed=FLAGS.seed),
         kernel_regularizer=regularizer,
         name=name)
 
@@ -257,8 +260,8 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     if FLAGS.scale:
         # Scale layers (See optimized at-once architecture from the original implementation
         # of FCN-8s PASCAL at-once: https://github.com/shelhamer/fcn.berkeleyvision.org)
-        vgg_layer3_out = tf.multiply(vgg_layer3_out, 0.0001, name='layer3_scaled')
-        vgg_layer4_out = tf.multiply(vgg_layer4_out, 0.01, name='layer4_scaled')
+        vgg_layer3_out = tf.multiply(vgg_layer3_out, SCALE_L_3, name='layer3_scaled')
+        vgg_layer4_out = tf.multiply(vgg_layer4_out, SCALE_L_4, name='layer4_scaled')
 
     # 1x1 convolutions to the encoder layers
     layer3_1x1 = _conv_1x1(vgg_layer3_out, num_classes, 'layer3_1x1', regularizer=l2_reg)
