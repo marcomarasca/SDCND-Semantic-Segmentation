@@ -232,13 +232,14 @@ def train_nn(sess,
         tf.summary.scalar('loss', cross_entropy_loss)
         tf.summary.scalar('iou', iou_mean)
         tf.summary.scalar('acc', acc_mean)
-        tf.summary.image(
+
+        # Merge the summaries
+        summary_op = tf.summary.merge_all()
+
+        image_summary_op = tf.summary.image(
             'prediction_image',
             tf.expand_dims(tf.div(tf.cast(prediction_op, dtype=tf.float32), CLASSES_N), -1),
             max_outputs=2)
-
-        # Merge the summaries
-        summary = tf.summary.merge_all()
 
         # Creates the tensorboard writer
         train_writer = helper.summary_writer(sess, model_folder)
@@ -312,12 +313,22 @@ def train_nn(sess,
             # Saves metrics for tensorboard
             if tensorboard:
                 training_summary = sess.run(
-                    summary, feed_dict={
+                    summary_op, feed_dict={
                         image_input: batch_images,
                         labels: batch_labels,
                         keep_prob: 1.0
                     })
                 train_writer.add_summary(training_summary, global_step=step)
+
+                # Writes the image every epoch
+                if step % batches_n == 0:
+                    image_summary = sess.run(
+                        image_summary_op, feed_dict={
+                            image_input: batch_images,
+                            labels: batch_labels,
+                            keep_prob: 1.0
+                        })
+                    train_writer.add_summary(image_summary, global_step=step)
 
             batches.set_description('Epoch {}/{} (Step: {}, Loss: {:.4f}, Acc: {:.4f}, IoU: {:.4f})'.format(
                 epoch + 1, epochs, step, curr_loss, curr_acc, curr_iou))
