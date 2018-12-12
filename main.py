@@ -23,7 +23,7 @@ LOGS_DIR = 'logs'
 KERNEL_STDEV = 0.01
 SCALE_L_3 = 0.0001
 SCALE_L_4 = 0.01
-MODELS_LIMIT = 20
+MODELS_LIMIT = 5
 MODELS_FREQ = 5
 MODEL_DIR = 'models'
 MODEL_NAME = 'fcn-vgg16'
@@ -132,7 +132,7 @@ def _plot_log(log_data, model_folder):
     c2 = colors[1]
     c3 = colors[3]
 
-    fig, ax1 = plt.subplots(figsize=(9, 6))
+    fig, ax1 = plt.subplots(figsize=(10, 7))
 
     ax1.set_xlabel('Step')
     ax1.set_ylabel('Loss/Accuracy')
@@ -141,7 +141,7 @@ def _plot_log(log_data, model_folder):
 
     ax1.plot(x, loss_log, label='Loss', color=c1, marker='.')
     ax1.plot(x, acc_log, label='Accuracy', color=c2, marker='.')
-    plt.xticks(x, x)
+    plt.xticks(x, x, rotation=(0 if len(x) < 20 else 80))
 
     ax2 = ax1.twinx()
     ax2.plot(x, iou_log, label='IOU', color=c3, marker='s')
@@ -381,25 +381,32 @@ def train_nn(sess,
     iou_mean, iou_op = metrics['iou']
     acc_mean, acc_op = metrics['acc']
 
+    # Evaluate current step
+    step = global_step.eval(session=sess)
+    start_step = step
+
     if tensorboard:
         tf.summary.scalar('loss', cross_entropy_loss)
         tf.summary.scalar('iou', iou_mean)
         tf.summary.scalar('acc', acc_mean)
-        tf.summary.text('hyperparameters', config_tensor)
         tf.summary.image(
             'prediction_image',
             tf.expand_dims(tf.div(tf.cast(prediction_op, dtype=tf.float32), CLASSES_N), -1),
             max_outputs=2)
+        
+        # Merge the summaries
         summary = tf.summary.merge_all()
+
+        # Creates the tensorboard writer
         train_writer = _summary_writer(sess, model_folder)
+
+        # Writes the hyperparams once (records the steps if trained in multiple passes)
+        hyperparams_summary = sess.run(tf.summary.text('hyperparameters', config_tensor))
+        train_writer.add_summary(hyperparams_summary, global_step=step)
 
     training_log = []
 
     start = time.time()
-
-    # Evaluate current step
-    step = global_step.eval(session=sess)
-    start_step = step
 
     print('Model folder: {}'.format(model_folder))
     print(
