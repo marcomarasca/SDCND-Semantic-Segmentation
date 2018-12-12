@@ -438,7 +438,7 @@ def train_nn(sess,
 
         training_log.append((epoch_loss, epoch_acc, epoch_iou))
 
-        if epoch + 1 % MODELS_FREQ == 0 and save_model:
+        if (epoch + 1) % MODELS_FREQ == 0 and save_model:
             _save_model(sess, saver, model_folder, global_step)
 
     elapsed = time.time() - start
