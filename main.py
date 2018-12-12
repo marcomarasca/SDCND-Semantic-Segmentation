@@ -5,8 +5,8 @@ import os.path
 import tensorflow as tf
 import math
 import scipy.misc
-import cv2
 import time
+import imageio
 from tqdm import tqdm
 from tqdm import trange
 from distutils.version import LooseVersion
@@ -388,16 +388,6 @@ def process_video(file_path):
 
     video_output = os.path.join(FLAGS.runs_dir, os.path.basename(file_path))
 
-    cap = cv2.VideoCapture(file_path)
-    frame_n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    #width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    #height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
-
-    # Define the codec and create VideoWriter object
-    fourcc = cv2.VideoWriter_fourcc(*'DIVX')
-    out = cv2.VideoWriter(video_output + '.avi', fourcc, fps, IMAGE_SHAPE[::-1])
-
     vgg_path = helper.maybe_download_pretrained_vgg(FLAGS.data_dir)
 
     with tf.Session(config=get_config()) as sess:
@@ -407,15 +397,15 @@ def process_video(file_path):
 
         helper.load_model(sess, helper.model_folder())
 
-        for i in trange(frame_n, desc='Processing', unit='frames'):
-            if cap.isOpened():
-                ret, frame = cap.read()
-                if ret == True:
-                    frame = helper.process_image(frame, sess, logits, keep_prob, image_input, IMAGE_SHAPE)
-                    out.write(frame)
+        reader = imageio.get_reader(file_path)
+        fps = reader.get_meta_data()['fps']
+        writer = imageio.get_writer(video_output, fps=fps)
 
-        cap.release()
-        out.release()
+        for frame in tqdm(reader, desc='Processing Video', unit='frames'):
+            frame_processed = helper.process_image(frame, sess, logits, keep_prob, image_input, IMAGE_SHAPE)
+            writer.append_data(frame_processed)
+
+        writer.close()
 
 
 def run_testing():
