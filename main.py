@@ -331,6 +331,7 @@ def train_nn(sess,
         if (epoch + 1) % MODELS_FREQ == 0 and save_model:
             helper.save_model(sess, saver, model_folder, global_step)
             log_data = helper.to_log_data(training_log, start_step, step, batches_n)
+            helper.save_log(log_data, model_folder)
             helper.plot_log(log_data, model_folder)
 
     elapsed = time.time() - start
