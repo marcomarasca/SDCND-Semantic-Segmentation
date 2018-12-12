@@ -487,7 +487,7 @@ def process_image(file_path):
         _load_model(sess, _model_folder())
 
         print('Processing image: {}'.format(file_path))
-        name, image = helper.process_image(file_path, sess, logits, keep_prob, image_input, IMAGE_SHAPE)
+        name, image = helper.process_image_file(file_path, sess, logits, keep_prob, image_input, IMAGE_SHAPE)
         scipy.misc.imsave(os.path.join(FLAGS.runs_dir, name), image)
 
 
