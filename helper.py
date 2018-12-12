@@ -77,10 +77,12 @@ def maybe_download_pretrained_vgg(data_dir):
 
     return vgg_path
 
+
 def limit_samples(paths):
     if FLAGS.samples_limit is not None:
         paths = paths[:FLAGS.samples_limit]
     return paths
+
 
 def gen_batch_function(data_folder, image_shape):
     """
@@ -132,10 +134,10 @@ def gen_batch_function(data_folder, image_shape):
     return get_batches_fn, samples_n
 
 
-def process_image(image, sess, logits, keep_prob, image_pl, image_shape):
+def process_image(input_image, sess, logits, keep_prob, image_pl, image_shape):
     """
 	Process a single image
-	:param image: The image 
+	:param input_image: The image 
 	:param sess: TF session
 	:param logits: TF Tensor for the logits
 	:param keep_prob: TF Placeholder for the dropout keep probability
@@ -144,7 +146,7 @@ def process_image(image, sess, logits, keep_prob, image_pl, image_shape):
 	:param image_shape: Tuple - Shape of image
 	:return: A segmented image
 	"""
-    image = scipy.misc.imresize(image, image_shape)
+    image = scipy.misc.imresize(input_image, image_shape)
     # Run inference
     im_softmax = sess.run([tf.nn.softmax(logits)], {keep_prob: 1.0, image_pl: [image]})
     # Splice out second column (road), reshape output back to image_shape

@@ -165,8 +165,11 @@ def test_train_nn(train_nn):
     labels = tf.placeholder(tf.float32, name='labels')
     keep_prob = tf.placeholder(tf.float32, name='keep_prob')
     learning_rate = tf.placeholder(tf.float32, name='learning_rate')
-    iou_op = tf.constant(0)
-    iou_mean = tf.constant(0)
+
+    metrics = {}
+
+    metrics['iou'] = (tf.constant(0), tf.constant(0))
+    metrics['acc'] = (tf.constant(0), tf.constant(0))
 
     with tf.Session() as sess:
         parameters = {
@@ -178,8 +181,7 @@ def test_train_nn(train_nn):
             'batches_n': batches_n,
             'train_op': train_op,
             'cross_entropy_loss': cross_entropy_loss,
-            'iou_op': iou_op,
-            'iou_mean': iou_mean,
+            'metrics': metrics,
             'image_input': image_input,
             'labels': labels,
             'keep_prob': keep_prob,

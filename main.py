@@ -21,6 +21,7 @@ import matplotlib.pyplot as plt
 
 LOGS_DIR = 'logs'
 MODELS_LIMIT = 20
+MODELS_FREQ = 5
 MODEL_DIR = 'models'
 MODEL_NAME = 'fcn-vgg16'
 MODEL_EXT = '.ckpt'
@@ -83,7 +84,8 @@ def _to_log_data(training_log, start_step, end_step, batches_n):
             'batch_size': FLAGS.batch_size,
             'learning_rate': FLAGS.learning_rate,
             'dropout': FLAGS.dropout,
-            'l2_reg': FLAGS.l2_reg
+            'l2_reg': FLAGS.l2_reg,
+            'eps': FLAGS.eps
         }
     }
 
@@ -110,30 +112,35 @@ def _plot_log(log_data, model_folder):
     batch_size = config['batch_size']
     learning_rate = config['learning_rate']
     dropout = config['dropout']
+    eps = config['eps']
     l2_reg = config['l2_reg']
 
     loss_log = training_log[:, 0]
-    iou_log = training_log[:, 1]
+    acc_log = training_log[:, 1]
+    iou_log = training_log[:, 2]
 
-    text = 'Loss: {:.3f}, IOU: {:.3f}'.format(loss_log[-1], iou_log[-1])
+    text = 'Loss: {:.4f}, Acc: {:.4f}, IoU: {:.4f}'.format(loss_log[-1], acc_log[-1], iou_log[-1])
 
     colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
     c1 = colors[0]
     c2 = colors[1]
+    c3 = colors[3]
 
     fig, ax1 = plt.subplots(figsize=(9, 6))
 
-    ax1.set_xlabel('Batch')
-    ax1.set_ylabel('Loss')
+    ax1.set_xlabel('Step')
+    ax1.set_ylabel('Loss/Accuracy')
 
-    x = np.arange(start_step + 1, end_step + 1, batches_n + 1)
+    print(start_step, end_step, batches_n)
+    x = np.arange(min(start_step + batches_n, end_step), end_step + 1, batches_n)
 
-    ax1.plot(x, loss_log, label='Loss', color=c1, marker='o')
+    ax1.plot(x, loss_log, label='Loss', color=c1, marker='.')
+    ax1.plot(x, acc_log, label='Accuracy', color=c2, marker='.')
     plt.xticks(x, x)
 
     ax2 = ax1.twinx()
-    ax2.plot(x, iou_log, label='IOU', color=c2, marker='^')
+    ax2.plot(x, iou_log, label='IOU', color=c3, marker='s')
     ax2.set_ylabel('IOU')
 
     handles, labels = ax1.get_legend_handles_labels()
@@ -142,14 +149,13 @@ def _plot_log(log_data, model_folder):
     handles += handles_2
     labels += labels_2
 
-    fig.legend(handles, labels, loc=(0.8, 0.6))
+    fig.legend(handles, labels, loc=(0.7, 0.5))
     fig.tight_layout()
 
-    plt.title("(EP: {}, BS: {}, LR: {}, DO: {}, L2: {})".format(epochs, batch_size, learning_rate, dropout, l2_reg))
+    plt.title("(EP: {}, BS: {}, LR: {}, DO: {}, L2: {}, EPS: {})".format(epochs, batch_size, learning_rate, dropout,
+                                                                         l2_reg, eps))
 
     fig.text(0.5, 0, text, verticalalignment='top', horizontalalignment='center', color='black', fontsize=10)
-
-    fig.show()
 
     file_name = 'training_log_' + str(start_step) + '_' + str(end_step) + '.png'
     fig.savefig(os.path.join(model_folder, file_name), bbox_inches='tight')
@@ -167,9 +173,9 @@ def _model_checkpoint(model_folder):
 def _model_folder():
     model_folder = FLAGS.model_folder
     if model_folder is None:
-        model_folder = os.path.join(
-            MODEL_DIR, 'model_e' + str(FLAGS.epochs) + '_bs' + str(FLAGS.batch_size) + '_lr' + str(FLAGS.learning_rate)
-            + '_do' + str(FLAGS.dropout) + '_l2' + str(FLAGS.l2_reg))
+        file_name = 'model_e' + str(FLAGS.epochs) + '_bs' + str(FLAGS.batch_size) + '_lr' + str(
+            FLAGS.learning_rate) + '_do' + str(FLAGS.dropout) + '_l2' + str(FLAGS.l2_reg) + '_eps' + str(FLAGS.eps)
+        model_folder = os.path.join(MODEL_DIR, file_name)
     return model_folder
 
 
@@ -231,28 +237,30 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     :param num_classes: Number of classes to classify
     :return: The Tensor for the last layer of output
     """
-    l2_reg = tf.contrib.layers.l2_regularizer(FLAGS.l2_reg)
 
-    # Scale layers (See optimized at-once architecture from the original implementation
-    # of FCN-8s PASCAL at-once: https://github.com/shelhamer/fcn.berkeleyvision.org)
-    layer3_scaled = tf.multiply(vgg_layer3_out, 0.0001, name='layer3_scaled')
-    layer4_scaled = tf.multiply(vgg_layer4_out, 0.01, name='layer4_scaled')
+    with tf.name_scope("decoder"):
+        l2_reg = tf.contrib.layers.l2_regularizer(FLAGS.l2_reg)
 
-    # 1x1 convolutions to the encoder layers
-    layer3_1x1 = _conv_1x1(layer3_scaled, num_classes, 'layer3_1x1', regularizer=l2_reg)
-    layer4_1x1 = _conv_1x1(layer4_scaled, num_classes, 'layer4_1x1', regularizer=l2_reg)
-    layer7_1x1 = _conv_1x1(vgg_layer7_out, num_classes, 'layer7_1x1', regularizer=l2_reg)
+        # Scale layers (See optimized at-once architecture from the original implementation
+        # of FCN-8s PASCAL at-once: https://github.com/shelhamer/fcn.berkeleyvision.org)
+        layer3_scaled = tf.multiply(vgg_layer3_out, 0.0001, name='layer3_scaled')
+        layer4_scaled = tf.multiply(vgg_layer4_out, 0.01, name='layer4_scaled')
 
-    # Upsample to decode into final image size
-    layer7_up = _up_sample(layer7_1x1, num_classes, 'layer7_up', (4, 4), (2, 2), regularizer=l2_reg)
+        # 1x1 convolutions to the encoder layers
+        layer3_1x1 = _conv_1x1(layer3_scaled, num_classes, 'layer3_1x1', regularizer=l2_reg)
+        layer4_1x1 = _conv_1x1(layer4_scaled, num_classes, 'layer4_1x1', regularizer=l2_reg)
+        layer7_1x1 = _conv_1x1(vgg_layer7_out, num_classes, 'layer7_1x1', regularizer=l2_reg)
 
-    # Skip layer
-    layer4_skip = tf.add(layer7_up, layer4_1x1, name="layer4_skip")
-    layer4_up = _up_sample(layer4_skip, num_classes, 'layer4_up', (4, 4), (2, 2), regularizer=l2_reg)
+        # Upsample to decode into final image size
+        layer7_up = _up_sample(layer7_1x1, num_classes, 'layer7_up', (4, 4), (2, 2), regularizer=l2_reg)
 
-    # Skip layer
-    layer3_skip = tf.add(layer4_up, layer3_1x1, name='layer3_skip')
-    layer3_up = _up_sample(layer3_skip, num_classes, 'layer3_up', (16, 16), (8, 8), regularizer=l2_reg)
+        # Skip layer
+        layer4_skip = tf.add(layer7_up, layer4_1x1, name="layer4_skip")
+        layer4_up = _up_sample(layer4_skip, num_classes, 'layer4_up', (4, 4), (2, 2), regularizer=l2_reg)
+
+        # Skip layer
+        layer3_skip = tf.add(layer4_up, layer3_1x1, name='layer3_skip')
+        layer3_up = _up_sample(layer3_skip, num_classes, 'layer3_up', (16, 16), (8, 8), regularizer=l2_reg)
 
     return layer3_up
 
@@ -281,10 +289,19 @@ def optimize(nn_last_layer, labels, learning_rate, num_classes):
     return logits, train_op, cross_entropy_loss, global_step
 
 
-def iou_metric(model_output, labels, num_classes):
-    logits_argmax = tf.argmax(tf.nn.softmax(model_output), axis=-1)
-    labels_argmax = tf.argmax(labels, axis=-1)
-    return tf.metrics.mean_iou(labels_argmax, logits_argmax, num_classes)
+def metrics(model_output, labels, num_classes):
+
+    output_softmax = tf.nn.softmax(model_output, name='output_softmax')
+    logits_argmax = tf.argmax(output_softmax, axis=-1, name='output_argmax')
+    labels_argmax = tf.argmax(labels, axis=-1, name='labels_argmax')
+
+    metrics = {}
+
+    with tf.name_scope("metrics"):
+        metrics['iou'] = (tf.metrics.mean_iou(labels_argmax, logits_argmax, num_classes))
+        metrics['acc'] = (tf.metrics.accuracy(labels_argmax, logits_argmax))
+
+    return metrics
 
 
 def train_nn(sess,
@@ -295,8 +312,7 @@ def train_nn(sess,
              batches_n,
              train_op,
              cross_entropy_loss,
-             iou_op,
-             iou_mean,
+             metrics,
              image_input,
              labels,
              keep_prob,
@@ -319,7 +335,6 @@ def train_nn(sess,
     :param learning_rate: TF Placeholder for learning rate
     """
 
-    #model_folder = datetime.now().strftime('%Y%m%d_%H%M%S')
     model_folder = _model_folder()
 
     if save_model and _checkpoint_exists(model_folder):
@@ -333,9 +348,13 @@ def train_nn(sess,
     if save_model:
         saver = tf.train.Saver(max_to_keep=MODELS_LIMIT)
 
+    iou_mean, iou_op = metrics['iou']
+    acc_mean, acc_op = metrics['acc']
+
     if tensorboard:
-        tf.summary.scalar('mean_iou', iou_mean)
-        tf.summary.scalar('total_loss', cross_entropy_loss)
+        tf.summary.scalar('loss', cross_entropy_loss)
+        tf.summary.scalar('iou', iou_mean)
+        tf.summary.scalar('acc', acc_mean)
         summary = tf.summary.merge_all()
         train_writer = _summary_writer(sess, model_folder)
 
@@ -348,8 +367,8 @@ def train_nn(sess,
     start_step = step
 
     print('Model folder: {}'.format(model_folder))
-    print('Training (First batch: {}, Epochs: {}, Batch Size: {}, Learning Rate: {}, Dropout: {}, L2 Reg: {})'.format(
-        step + 1, FLAGS.epochs, FLAGS.batch_size, FLAGS.learning_rate, FLAGS.dropout, FLAGS.l2_reg))
+    print('Training (First batch: {}, Epochs: {}, Batch Size: {}, Learning Rate: {}, Dropout: {}, L2 Reg: {}, Eps: {})'.
+          format(step + 1, FLAGS.epochs, FLAGS.batch_size, FLAGS.learning_rate, FLAGS.dropout, FLAGS.l2_reg, FLAGS.eps))
 
     for epoch in range(epochs):
 
@@ -357,11 +376,13 @@ def train_nn(sess,
         curr_loss = 0
         total_iou = 0
         curr_iou = 0
+        total_acc = 0
+        curr_acc = 0
         images_n = 0
 
         batches = tqdm(
             get_batches_fn(batch_size),
-            desc='Epoch {}/{} (Batch: {}, Loss: N/A, IOU: N/A)'.format(epoch + 1, epochs, step + 1),
+            desc='Epoch {}/{} (Step: {}, Loss: N/A, Acc: N/A, IoU: N/A)'.format(epoch + 1, epochs, step),
             unit='batches',
             total=batches_n)
 
@@ -380,17 +401,20 @@ def train_nn(sess,
             images_n += len(batch_images)
 
             # Evaluate
-            loss, _, iou = sess.run([cross_entropy_loss, iou_op, iou_mean],
-                                    feed_dict={
-                                        image_input: batch_images,
-                                        labels: batch_labels,
-                                        keep_prob: 1.0
-                                    })
+            loss, _, iou, _, acc = sess.run([cross_entropy_loss, iou_op, iou_mean, acc_op, acc_mean],
+                                            feed_dict={
+                                                image_input: batch_images,
+                                                labels: batch_labels,
+                                                keep_prob: 1.0
+                                            })
 
             step = global_step.eval(session=sess)
 
             total_loss += loss * len(batch_images)
             curr_loss = total_loss / images_n
+
+            total_acc += acc * len(batch_images)
+            curr_acc = total_acc / images_n
 
             total_iou += iou * len(batch_images)
             curr_iou = total_iou / images_n
@@ -405,21 +429,22 @@ def train_nn(sess,
                     })
                 train_writer.add_summary(training_summary, global_step=step)
 
-            batches.set_description('Epoch {}/{} (Batch: {}, Loss: {:.4f}, IOU: {:.4f})'.format(
-                epoch + 1, epochs, step, curr_loss, curr_iou))
+            batches.set_description('Epoch {}/{} (Step: {}, Loss: {:.4f}, Acc: {:.4f}, IoU: {:.4f})'.format(
+                epoch + 1, epochs, step, curr_loss, curr_acc, curr_iou))
 
         epoch_loss = total_loss / images_n
+        epoch_acc = total_acc / images_n
         epoch_iou = total_iou / images_n
 
-        training_log.append((epoch_loss, epoch_iou))
+        training_log.append((epoch_loss, epoch_acc, epoch_iou))
 
-        if epoch % 5 == 0 and save_model:
+        if epoch + 1 % MODELS_FREQ == 0 and save_model:
             _save_model(sess, saver, model_folder, global_step)
 
     elapsed = time.time() - start
 
-    print("Training Completed ({:.1f} s): Last batch: {}, Loss: {:.4f}, IOU: {:.4f}".format(
-        elapsed, step, total_loss / images_n, total_iou / images_n))
+    print('Training Completed ({:.1f} s): Last batch: {}, Loss: {:.4f}, Acc: {:.4f}, IoU: {:.4f}'.format(
+        elapsed, step, total_loss / images_n, total_acc / images_n, total_iou / images_n))
 
     if save_model:
         _save_model(sess, saver, model_folder, global_step)
@@ -536,10 +561,10 @@ def run():
 
         logits, train_op, cross_entropy_loss, global_step = optimize(model_output, labels, learning_rate, CLASSES_N)
 
-        iou_mean, iou_op = iou_metric(model_output, labels, CLASSES_N)
+        metrics_dict = metrics(model_output, labels, CLASSES_N)
 
         train_nn(sess, global_step, FLAGS.epochs, FLAGS.batch_size, get_batches_fn, batches_n, train_op,
-                 cross_entropy_loss, iou_op, iou_mean, image_input, labels, keep_prob, learning_rate, True, True)
+                 cross_entropy_loss, metrics_dict, image_input, labels, keep_prob, learning_rate, True, True)
 
         helper.save_inference_samples(FLAGS.runs_dir, FLAGS.data_dir, sess, IMAGE_SHAPE, logits, keep_prob, image_input)
 
