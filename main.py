@@ -238,29 +238,28 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     :return: The Tensor for the last layer of output
     """
 
-    with tf.name_scope("decoder"):
-        l2_reg = tf.contrib.layers.l2_regularizer(FLAGS.l2_reg)
+    l2_reg = tf.contrib.layers.l2_regularizer(FLAGS.l2_reg)
 
-        # Scale layers (See optimized at-once architecture from the original implementation
-        # of FCN-8s PASCAL at-once: https://github.com/shelhamer/fcn.berkeleyvision.org)
-        layer3_scaled = tf.multiply(vgg_layer3_out, 0.0001, name='layer3_scaled')
-        layer4_scaled = tf.multiply(vgg_layer4_out, 0.01, name='layer4_scaled')
+    # Scale layers (See optimized at-once architecture from the original implementation
+    # of FCN-8s PASCAL at-once: https://github.com/shelhamer/fcn.berkeleyvision.org)
+    layer3_scaled = tf.multiply(vgg_layer3_out, 0.0001, name='layer3_scaled')
+    layer4_scaled = tf.multiply(vgg_layer4_out, 0.01, name='layer4_scaled')
 
-        # 1x1 convolutions to the encoder layers
-        layer3_1x1 = _conv_1x1(layer3_scaled, num_classes, 'layer3_1x1', regularizer=l2_reg)
-        layer4_1x1 = _conv_1x1(layer4_scaled, num_classes, 'layer4_1x1', regularizer=l2_reg)
-        layer7_1x1 = _conv_1x1(vgg_layer7_out, num_classes, 'layer7_1x1', regularizer=l2_reg)
+    # 1x1 convolutions to the encoder layers
+    layer3_1x1 = _conv_1x1(layer3_scaled, num_classes, 'layer3_1x1', regularizer=l2_reg)
+    layer4_1x1 = _conv_1x1(layer4_scaled, num_classes, 'layer4_1x1', regularizer=l2_reg)
+    layer7_1x1 = _conv_1x1(vgg_layer7_out, num_classes, 'layer7_1x1', regularizer=l2_reg)
 
-        # Upsample to decode into final image size
-        layer7_up = _up_sample(layer7_1x1, num_classes, 'layer7_up', (4, 4), (2, 2), regularizer=l2_reg)
+    # Upsample to decode into final image size
+    layer7_up = _up_sample(layer7_1x1, num_classes, 'layer7_up', (4, 4), (2, 2), regularizer=l2_reg)
 
-        # Skip layer
-        layer4_skip = tf.add(layer7_up, layer4_1x1, name="layer4_skip")
-        layer4_up = _up_sample(layer4_skip, num_classes, 'layer4_up', (4, 4), (2, 2), regularizer=l2_reg)
+    # Skip layer
+    layer4_skip = tf.add(layer7_up, layer4_1x1, name="layer4_skip")
+    layer4_up = _up_sample(layer4_skip, num_classes, 'layer4_up', (4, 4), (2, 2), regularizer=l2_reg)
 
-        # Skip layer
-        layer3_skip = tf.add(layer4_up, layer3_1x1, name='layer3_skip')
-        layer3_up = _up_sample(layer3_skip, num_classes, 'layer3_up', (16, 16), (8, 8), regularizer=l2_reg)
+    # Skip layer
+    layer3_skip = tf.add(layer4_up, layer3_1x1, name='layer3_skip')
+    layer3_up = _up_sample(layer3_skip, num_classes, 'layer3_up', (16, 16), (8, 8), regularizer=l2_reg)
 
     return layer3_up
 
@@ -297,9 +296,8 @@ def metrics(model_output, labels, num_classes):
 
     metrics = {}
 
-    with tf.name_scope("metrics"):
-        metrics['iou'] = (tf.metrics.mean_iou(labels_argmax, logits_argmax, num_classes))
-        metrics['acc'] = (tf.metrics.accuracy(labels_argmax, logits_argmax))
+    metrics['iou'] = (tf.metrics.mean_iou(labels_argmax, logits_argmax, num_classes))
+    metrics['acc'] = (tf.metrics.accuracy(labels_argmax, logits_argmax))
 
     return metrics
 
