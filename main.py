@@ -85,7 +85,8 @@ def _to_log_data(training_log, start_step, end_step, batches_n):
             'learning_rate': FLAGS.learning_rate,
             'dropout': FLAGS.dropout,
             'l2_reg': FLAGS.l2_reg,
-            'eps': FLAGS.eps
+            'eps': FLAGS.eps,
+            'scale': FLAGS.scale
         }
     }
 
@@ -114,6 +115,7 @@ def _plot_log(log_data, model_folder):
     dropout = config['dropout']
     eps = config['eps']
     l2_reg = config['l2_reg']
+    scale = config['scale']
 
     loss_log = training_log[:, 0]
     acc_log = training_log[:, 1]
@@ -152,8 +154,8 @@ def _plot_log(log_data, model_folder):
     fig.legend(handles, labels, loc=(0.7, 0.5))
     fig.tight_layout()
 
-    plt.title("(EP: {}, BS: {}, LR: {}, DO: {}, L2: {}, EPS: {})".format(epochs, batch_size, learning_rate, dropout,
-                                                                         l2_reg, eps))
+    plt.title("(EP: {}, BS: {}, LR: {}, DO: {}, L2: {}, EPS: {}, S: {})".format(
+        epochs, batch_size, learning_rate, dropout, l2_reg, eps, 'ON' if FLAGS.scale else 'OFF'))
 
     fig.text(0.5, 0, text, verticalalignment='top', horizontalalignment='center', color='black', fontsize=10)
 
@@ -173,8 +175,9 @@ def _model_checkpoint(model_folder):
 def _model_folder():
     model_folder = FLAGS.model_folder
     if model_folder is None:
-        file_name = 'model_e' + str(FLAGS.epochs) + '_bs' + str(FLAGS.batch_size) + '_lr' + str(
-            FLAGS.learning_rate) + '_do' + str(FLAGS.dropout) + '_l2' + str(FLAGS.l2_reg) + '_eps' + str(FLAGS.eps)
+        file_name = 'm_e=' + str(FLAGS.epochs) + '_bs=' + str(FLAGS.batch_size) + '_lr=' + str(
+            FLAGS.learning_rate) + '_do=' + str(FLAGS.dropout) + '_l2=' + str(FLAGS.l2_reg) + '_eps=' + str(
+                FLAGS.eps) + '_scale=' + 'on' if FLAGS.scale else 'off'
         model_folder = os.path.join(MODEL_DIR, file_name)
     return model_folder
 
@@ -240,14 +243,15 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
 
     l2_reg = tf.contrib.layers.l2_regularizer(FLAGS.l2_reg)
 
-    # Scale layers (See optimized at-once architecture from the original implementation
-    # of FCN-8s PASCAL at-once: https://github.com/shelhamer/fcn.berkeleyvision.org)
-    layer3_scaled = tf.multiply(vgg_layer3_out, 0.0001, name='layer3_scaled')
-    layer4_scaled = tf.multiply(vgg_layer4_out, 0.01, name='layer4_scaled')
+    if FLAGS.scale:
+        # Scale layers (See optimized at-once architecture from the original implementation
+        # of FCN-8s PASCAL at-once: https://github.com/shelhamer/fcn.berkeleyvision.org)
+        vgg_layer3_out = tf.multiply(vgg_layer3_out, 0.0001, name='layer3_scaled')
+        vgg_layer4_out = tf.multiply(vgg_layer4_out, 0.01, name='layer4_scaled')
 
     # 1x1 convolutions to the encoder layers
-    layer3_1x1 = _conv_1x1(layer3_scaled, num_classes, 'layer3_1x1', regularizer=l2_reg)
-    layer4_1x1 = _conv_1x1(layer4_scaled, num_classes, 'layer4_1x1', regularizer=l2_reg)
+    layer3_1x1 = _conv_1x1(vgg_layer3_out, num_classes, 'layer3_1x1', regularizer=l2_reg)
+    layer4_1x1 = _conv_1x1(vgg_layer4_out, num_classes, 'layer4_1x1', regularizer=l2_reg)
     layer7_1x1 = _conv_1x1(vgg_layer7_out, num_classes, 'layer7_1x1', regularizer=l2_reg)
 
     # Upsample to decode into final image size
@@ -365,8 +369,10 @@ def train_nn(sess,
     start_step = step
 
     print('Model folder: {}'.format(model_folder))
-    print('Training (First batch: {}, Epochs: {}, Batch Size: {}, Learning Rate: {}, Dropout: {}, L2 Reg: {}, Eps: {})'.
-          format(step + 1, FLAGS.epochs, FLAGS.batch_size, FLAGS.learning_rate, FLAGS.dropout, FLAGS.l2_reg, FLAGS.eps))
+    print(
+        'Training (First batch: {}, Epochs: {}, Batch Size: {}, Learning Rate: {}, Dropout: {}, L2 Reg: {}, Eps: {}, Scaling: {})'
+        .format(step + 1, FLAGS.epochs, FLAGS.batch_size, FLAGS.learning_rate, FLAGS.dropout, FLAGS.l2_reg, FLAGS.eps,
+                'ON' if FLAGS.scale else 'OFF'))
 
     for epoch in range(epochs):
 
