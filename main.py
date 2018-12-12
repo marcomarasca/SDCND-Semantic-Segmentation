@@ -134,7 +134,6 @@ def _plot_log(log_data, model_folder):
     ax1.set_xlabel('Step')
     ax1.set_ylabel('Loss/Accuracy')
 
-    print(start_step, end_step, batches_n)
     x = np.arange(min(start_step + batches_n, end_step), end_step + 1, batches_n)
 
     ax1.plot(x, loss_log, label='Loss', color=c1, marker='.')
@@ -185,6 +184,18 @@ def _model_folder():
 def _summary_writer(sess, model_folder):
     model_folder_name = os.path.basename(model_folder)
     return tf.summary.FileWriter(os.path.join(LOGS_DIR, model_folder_name), graph=sess.graph)
+
+
+def _config_tensor():
+    return tf.stack([
+        tf.convert_to_tensor(['epochs', str(FLAGS.epochs)]),
+        tf.convert_to_tensor(['batch_size', str(FLAGS.batch_size)]),
+        tf.convert_to_tensor(['learning_rate', str(FLAGS.learning_rate)]),
+        tf.convert_to_tensor(['dropout', str(FLAGS.dropout)]),
+        tf.convert_to_tensor(['l2_reg', str(FLAGS.l2_reg)]),
+        tf.convert_to_tensor(['eps', str(FLAGS.eps)]),
+        tf.convert_to_tensor(['scale', 'ON' if FLAGS.scale else 'OFF'])
+    ])
 
 
 def _conv_1x1(x, filters, name, regularizer=None):
@@ -338,6 +349,7 @@ def train_nn(sess,
     """
 
     model_folder = _model_folder()
+    config_tensor = _config_tensor()
 
     if save_model and _checkpoint_exists(model_folder):
         print('Checkpoint exists, restoring model from {}'.format(model_folder))
@@ -357,6 +369,7 @@ def train_nn(sess,
         tf.summary.scalar('loss', cross_entropy_loss)
         tf.summary.scalar('iou', iou_mean)
         tf.summary.scalar('acc', acc_mean)
+        tf.summary.text('hyperparameters', config_tensor)
         summary = tf.summary.merge_all()
         train_writer = _summary_writer(sess, model_folder)
 
