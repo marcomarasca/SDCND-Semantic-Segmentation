@@ -5,20 +5,37 @@ This file is used primarily to download vgg if it has not yet been,
 give you the progress of the download, get batches for your training,
 as well as around generating and saving the image outputs.
 '''
+from args import FLAGS
 
 import re
 import random
-import numpy as np
 import os.path
 import scipy.misc
 import shutil
 import zipfile
 import time
+import pickle
+import numpy as np
 import tensorflow as tf
+import matplotlib as mpl
+# For plotting without a screen
+mpl.use('Agg')
+import matplotlib.pyplot as plt
+
 from glob import glob
 from urllib.request import urlretrieve
 from tqdm import tqdm
-from args import FLAGS
+
+MODEL_DIR = 'models'
+MODEL_NAME = 'fcn-vgg16'
+MODEL_EXT = '.ckpt'
+LOGS_DIR = 'logs'
+
+if not os.path.isdir(MODEL_DIR):
+    os.makedirs(MODEL_DIR)
+
+if not os.path.isdir(LOGS_DIR):
+    os.makedirs(LOGS_DIR)
 
 
 class DLProgress(tqdm):
@@ -76,6 +93,151 @@ def maybe_download_pretrained_vgg(data_dir):
         os.remove(os.path.join(vgg_path, vgg_filename))
 
     return vgg_path
+
+
+def _assert_folder_exists(folder):
+    if not os.path.isdir(folder):
+        raise ValueError('The folder {} does not exist'.format(folder))
+
+
+def _model_checkpoint(model_folder):
+    file_name = MODEL_NAME + MODEL_EXT
+    return os.path.join(model_folder, file_name)
+
+
+def save_model(sess, saver, model_folder, global_step):
+    model_path = _model_checkpoint(model_folder)
+    save_path = saver.save(sess, model_path, global_step=global_step)
+    print('Model saved in path: {}'.format(save_path))
+
+
+def load_model(sess, model_folder):
+    _assert_folder_exists(model_folder)
+    saver = tf.train.Saver()
+    # Restore the latest checkpoint
+    model_path = tf.train.latest_checkpoint(model_folder)
+    saver.restore(sess, model_path)
+    print('Model restored from path: {}'.format(model_path))
+
+
+def to_log_data(training_log, start_step, end_step, batches_n):
+    return {
+        'log': training_log,
+        'config': {
+            'start_step': start_step,
+            'end_step': end_step,
+            'batches_n': batches_n,
+            'epochs': FLAGS.epochs,
+            'batch_size': FLAGS.batch_size,
+            'learning_rate': FLAGS.learning_rate,
+            'dropout': FLAGS.dropout,
+            'l2_reg': FLAGS.l2_reg,
+            'eps': FLAGS.eps,
+            'scale': FLAGS.scale
+        }
+    }
+
+
+def summary_writer(sess, model_folder):
+    model_folder_name = os.path.basename(model_folder)
+    return tf.summary.FileWriter(os.path.join(LOGS_DIR, model_folder_name), graph=sess.graph)
+
+
+def save_log(log_data, model_folder):
+    _assert_folder_exists(model_folder)
+    start_step = log_data['config']['start_step']
+    end_step = log_data['config']['end_step']
+    file_name = 'training_log_' + str(start_step) + '_' + str(end_step) + '.p'
+    file_path = os.path.join(model_folder, file_name)
+    with open(file_path, 'wb') as f:
+        pickle.dump(log_data, f, protocol=pickle.HIGHEST_PROTOCOL)
+    print('Training log saved to: {}'.format(file_path))
+
+
+def plot_log(log_data, model_folder):
+
+    config = log_data['config']
+    training_log = np.array(log_data['log'])
+    start_step = config['start_step']
+    end_step = config['end_step']
+    epochs = config['epochs']
+    batches_n = config['batches_n']
+    batch_size = config['batch_size']
+    learning_rate = config['learning_rate']
+    dropout = config['dropout']
+    eps = config['eps']
+    l2_reg = config['l2_reg']
+    scale = config['scale']
+
+    loss_log = training_log[:, 0]
+    acc_log = training_log[:, 1]
+    iou_log = training_log[:, 2]
+
+    text = 'Loss: {:.4f}, Acc: {:.4f}, IoU: {:.4f}'.format(loss_log[-1], acc_log[-1], iou_log[-1])
+
+    colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+
+    c1 = colors[0]
+    c2 = colors[1]
+    c3 = colors[3]
+
+    fig, ax1 = plt.subplots(figsize=(10, 7))
+
+    ax1.set_xlabel('Step')
+    ax1.set_ylabel('Loss/Accuracy')
+
+    x = np.arange(min(start_step + batches_n, end_step), end_step + 1, batches_n)
+
+    ax1.plot(x, loss_log, label='Loss', color=c1, marker='.')
+    ax1.plot(x, acc_log, label='Accuracy', color=c2, marker='.')
+    plt.xticks(x, x, rotation=(0 if len(x) < 20 else 80))
+
+    ax2 = ax1.twinx()
+    ax2.plot(x, iou_log, label='IOU', color=c3, marker='s')
+    ax2.set_ylabel('IOU')
+
+    handles, labels = ax1.get_legend_handles_labels()
+    handles_2, labels_2 = ax2.get_legend_handles_labels()
+
+    handles += handles_2
+    labels += labels_2
+
+    fig.legend(handles, labels, loc=(0.7, 0.5))
+    fig.tight_layout()
+
+    plt.title("(EP: {}, BS: {}, LR: {}, DO: {}, L2: {}, EPS: {}, S: {})".format(
+        epochs, batch_size, learning_rate, dropout, l2_reg, eps, 'ON' if scale else 'OFF'))
+
+    fig.text(0.5, 0, text, verticalalignment='top', horizontalalignment='center', color='black', fontsize=10)
+
+    file_name = 'training_log_' + str(start_step) + '_' + str(end_step) + '.png'
+    fig.savefig(os.path.join(model_folder, file_name), bbox_inches='tight')
+
+
+def checkpoint_exists(model_folder):
+    return os.path.isfile(os.path.join(model_folder, 'checkpoint'))
+
+
+def model_folder():
+    model_folder = FLAGS.model_folder
+    if model_folder is None:
+        file_name = 'm_e=' + str(FLAGS.epochs) + '_bs=' + str(FLAGS.batch_size) + '_lr=' + str(
+            FLAGS.learning_rate) + '_do=' + str(FLAGS.dropout) + '_l2=' + str(FLAGS.l2_reg) + '_eps=' + str(
+                FLAGS.eps) + '_scale=' + ('on' if FLAGS.scale else 'off')
+        model_folder = os.path.join(MODEL_DIR, file_name)
+    return model_folder
+
+
+def config_tensor():
+    return tf.stack([
+        tf.convert_to_tensor(['epochs', str(FLAGS.epochs)]),
+        tf.convert_to_tensor(['batch_size', str(FLAGS.batch_size)]),
+        tf.convert_to_tensor(['learning_rate', str(FLAGS.learning_rate)]),
+        tf.convert_to_tensor(['dropout', str(FLAGS.dropout)]),
+        tf.convert_to_tensor(['l2_reg', str(FLAGS.l2_reg)]),
+        tf.convert_to_tensor(['eps', str(FLAGS.eps)]),
+        tf.convert_to_tensor(['scale', 'ON' if FLAGS.scale else 'OFF'])
+    ])
 
 
 def limit_samples(paths):
