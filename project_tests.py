@@ -172,6 +172,8 @@ def test_train_nn(train_nn):
     metrics['iou'] = (tf.constant(0), tf.constant(0))
     metrics['acc'] = (tf.constant(0), tf.constant(0))
 
+    metrics_reset_op = tf.constant(0)
+
     with tf.Session() as sess:
         parameters = {
             'sess': sess,
@@ -184,6 +186,7 @@ def test_train_nn(train_nn):
             'cross_entropy_loss': cross_entropy_loss,
             'prediction_op': prediction_op,
             'metrics': metrics,
+            'metrics_reset_op': metrics_reset_op,
             'image_input': image_input,
             'labels': labels,
             'keep_prob': keep_prob,

@@ -312,10 +312,16 @@ def metrics(output_softmax, labels, num_classes):
 
     metrics = {}
 
-    metrics['iou'] = (tf.metrics.mean_iou(labels_argmax, logits_argmax, num_classes))
-    metrics['acc'] = (tf.metrics.accuracy(labels_argmax, logits_argmax))
+    with tf.variable_scope('metrics') as scope:
+        metrics['iou'] = (tf.metrics.mean_iou(labels_argmax, logits_argmax, num_classes))
+        metrics['acc'] = (tf.metrics.accuracy(labels_argmax, logits_argmax))
 
-    return metrics
+    # Creates a reset operation for the metrics to be run at the beginning of each epoch
+    # See https://steemit.com/machine-learning/@ronny.rest/avoiding-headaches-with-tf-metrics
+    metrics_vars = tf.get_collection(tf.GraphKeys.LOCAL_VARIABLES, scope="metrics")
+    metrics_reset_op = tf.variables_initializer(var_list=metrics_vars)
+
+    return metrics, metrics_reset_op
 
 
 def prediction(model_output):
@@ -335,6 +341,7 @@ def train_nn(sess,
              cross_entropy_loss,
              prediction_op,
              metrics,
+             metrics_reset_op,
              image_input,
              labels,
              keep_prob,
@@ -409,6 +416,9 @@ def train_nn(sess,
         total_acc = 0
         curr_acc = 0
         images_n = 0
+
+        # Resets the metrics variables at the beginning of the epoch
+        sess.run(metrics_reset_op)
 
         batches = tqdm(
             get_batches_fn(batch_size),
@@ -593,11 +603,11 @@ def run():
 
         output_softmax, prediction_op = prediction(model_output)
 
-        metrics_dict = metrics(output_softmax, labels, CLASSES_N)
+        metrics_dict, metrics_reset_op = metrics(output_softmax, labels, CLASSES_N)
 
         train_nn(sess, global_step, FLAGS.epochs, FLAGS.batch_size, get_batches_fn, batches_n, train_op,
-                 cross_entropy_loss, prediction_op, metrics_dict, image_input, labels, keep_prob, learning_rate, True,
-                 True)
+                 cross_entropy_loss, prediction_op, metrics_dict, metrics_reset_op, image_input, labels, keep_prob,
+                 learning_rate, True, True)
 
         helper.save_inference_samples(FLAGS.runs_dir, FLAGS.data_dir, sess, IMAGE_SHAPE, logits, keep_prob, image_input)
 
