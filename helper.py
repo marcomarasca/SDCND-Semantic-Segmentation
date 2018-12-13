@@ -143,6 +143,11 @@ def summary_writer(sess, model_folder):
     return tf.summary.FileWriter(os.path.join(LOGS_DIR, model_folder_name), graph=sess.graph)
 
 
+def image_summary_batch(data_folder, image_shape, image_n):
+    batch_fn, samples_n = gen_batch_function(data_folder, image_shape)
+    return next(batch_fn(image_n))
+
+
 def save_log(log_data, model_folder):
     _assert_folder_exists(model_folder)
     start_step = log_data['config']['start_step']

@@ -238,6 +238,10 @@ def train_nn(sess,
         # Merge the summaries
         summary_op = tf.summary.merge_all()
 
+        # Gets the batch of images/labels to feed to the image summary op
+        summary_images, summary_labels = helper.image_summary_batch(
+            os.path.join(FLAGS.data_dir, 'data_road', 'training'), IMAGE_SHAPE, TENSORBOARD_MAX_IMG)
+
         image_input_summary_op = tf.summary.image('image_input', image_input, max_outputs=TENSORBOARD_MAX_IMG)
         image_pred_summary_op = tf.summary.image(
             'image_pred',
@@ -261,7 +265,7 @@ def train_nn(sess,
 
     best_loss = 9999
     ep_loss_incr = 0
-    
+
     start = time.time()
 
     for epoch in range(epochs):
@@ -333,8 +337,8 @@ def train_nn(sess,
                 if step % batches_n == 0:
                     image_input_summary, image_pred_summary = sess.run([image_input_summary_op, image_pred_summary_op],
                                                                        feed_dict={
-                                                                           image_input: batch_images,
-                                                                           labels: batch_labels,
+                                                                           image_input: summary_images,
+                                                                           labels: summary_labels,
                                                                            keep_prob: 1.0
                                                                        })
                     train_writer.add_summary(image_input_summary, global_step=step)
@@ -354,7 +358,7 @@ def train_nn(sess,
             ep_loss_incr = 0
             best_loss = epoch_loss
         else:
-            ep_loss_incr +=1
+            ep_loss_incr += 1
 
         if FLAGS.early_stopping is not None and ep_loss_incr >= FLAGS.early_stopping:
             print('Early Stopping Triggered (Loss not decreasing in the last {} epochs)'.format(ep_loss_incr))
