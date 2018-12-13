@@ -253,13 +253,16 @@ def train_nn(sess,
 
     training_log = []
 
-    start = time.time()
-
     print('Model folder: {}'.format(model_folder))
     print(
         'Training (First batch: {}, Epochs: {}, Batch Size: {}, Learning Rate: {}, Dropout: {}, L2 Reg: {}, Eps: {}, Scaling: {})'
         .format(step + 1, FLAGS.epochs, FLAGS.batch_size, FLAGS.learning_rate, FLAGS.dropout, FLAGS.l2_reg, FLAGS.eps,
                 'ON' if FLAGS.scale else 'OFF'))
+
+    best_loss = 9999
+    ep_loss_incr = 0
+    
+    start = time.time()
 
     for epoch in range(epochs):
 
@@ -345,6 +348,16 @@ def train_nn(sess,
         epoch_iou = total_iou / images_n
 
         training_log.append((epoch_loss, epoch_acc, epoch_iou))
+
+        if epoch_loss < best_loss:
+            ep_loss_incr = 0
+            best_loss = epoch_loss
+        else:
+            ep_loss_incr +=1
+
+        if FLAGS.early_stopping is not None and ep_loss_incr >= FLAGS.early_stopping:
+            print('Early Stopping Triggered (Loss not decreasing in the last {} epochs)'.format(ep_loss_incr))
+            break
 
         if (epoch + 1) % MODELS_FREQ == 0 and save_model:
             helper.save_model(sess, saver, model_folder, global_step)
