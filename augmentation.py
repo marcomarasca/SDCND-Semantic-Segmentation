@@ -27,7 +27,7 @@ def _apply_random_brightness(img_rgb, brightness_range):
     return adjusted_img
 
 
-def augment_dataset(dataset_folder, output_folder, random_brightness=(0.6, 1.4)):
+def augment_dataset(dataset_folder, output_folder, random_brightness=(0.7, 1.3)):
 
     print('Augmenting Dataset in {}, result will be saved into: {}'.format(dataset_folder, output_folder))
 
