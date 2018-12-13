@@ -339,6 +339,7 @@ def train_nn(sess,
                                                                        })
                     train_writer.add_summary(image_input_summary, global_step=step)
                     train_writer.add_summary(image_pred_summary, global_step=step)
+                    train_writer.flush()
 
             batches.set_description('Epoch {}/{} (Step: {}, Loss: {:.4f}, Acc: {:.4f}, IoU: {:.4f})'.format(
                 epoch + 1, epochs, step, curr_loss, curr_acc, curr_iou))
