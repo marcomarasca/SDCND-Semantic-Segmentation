@@ -182,7 +182,6 @@ def save_log(log_data, model_folder):
 
 
 def plot_log(log_data, model_folder):
-
     config = log_data['config']
     training_log = np.array(log_data['log'])
     start_step = config['start_step']
@@ -242,24 +241,54 @@ def plot_log(log_data, model_folder):
 
 
 def summary_writer(sess, model_folder):
+    """
+	Returns the tensorboard summary writer for the given model
+	:param ses: TF session
+    :param model_folder: The model that stores the model
+	:return: Summary writer
+	"""
     model_folder_name = os.path.basename(model_folder)
     return tf.summary.FileWriter(os.path.join(LOGS_DIR, model_folder_name), graph=sess.graph)
 
 
 def image_summary_batch(data_folder, image_shape, image_n):
+    """
+	Returns a bacth of images to be used by the tensorboard summary
+	:param data_folder: The folder containing the images
+    :param image_shape: The output shape for the images
+    :param image_n: How many
+	:return: Tuple (images, labels)
+	"""
     batch_fn, samples_n = gen_batch_function(data_folder, image_shape)
     return next(batch_fn(image_n))
 
 
 def setup_summaries(sess, writer, image_input, labels, keep_prob, cross_entropy_loss, prediction_op, iou_mean, acc_mean,
-                    summary_images, summary_labels, step, classes_num, max_imgs):
-
+                    summary_images, summary_labels, step, classes_num):
+    """
+	Builds the TF tensors used to run record summaries
+	:param sess: The TF session
+    :param writer: The summary writer
+    :param labels: TF Placeholder for the labels
+    :param keep_prob: TF Placeholder for the keep_prob
+    :param cross_entropy_loss: TF Tensor for the loss
+    :param prediction_op: TF Tensor for the prediction
+    :param iou_mean: TF Placeholder for the mean iou
+    :param acc_mean: TF Placeholder for the mean acc
+    :param summary_images: List of images to record in the summary (and run prediction)
+    :param summary_labels: Labels associated to the summary_images
+    :param step: The current step
+    :param classes_num: The number of classes
+	:return: Tuple (summary_op, image_summary_op) with a summary for metrics and one used to save prediction images
+	"""
     tf.summary.scalar('loss', cross_entropy_loss)
     tf.summary.scalar('iou', iou_mean)
     tf.summary.scalar('acc', acc_mean)
 
     # Merge running summaries
     summary_op = tf.summary.merge_all()
+
+    max_imgs = len(summary_images)
 
     # Setup the prediction image summary op
     image_summary_op = tf.summary.image(
@@ -293,7 +322,7 @@ def gen_batch_function(data_folder, image_shape):
 	Generate function to create batches of training data
 	:param data_folder: Path to folder that contains all the datasets
 	:param image_shape: Tuple - Shape of image
-	:return:
+	:return: A tuple with (generator, samples_n)
 	"""
     # Grab image and label paths
     image_paths = glob(os.path.join(data_folder, 'image_2', '*.png'))

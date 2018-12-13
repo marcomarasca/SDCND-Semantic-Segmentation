@@ -47,6 +47,14 @@ else:
 
 
 def _conv_1x1(x, filters, name, regularizer=None):
+    """
+    Applies a 1x1 convolution to the given input
+    :param x: The input
+    :param filters: Number of filters
+    :param name: The name of the tensor
+    :param regularizer: Optional regularizer for the kernel
+    :return: Tensor with the 1x1 convolution
+    """
     return tf.layers.conv2d(
         x,
         filters=filters,
@@ -59,6 +67,16 @@ def _conv_1x1(x, filters, name, regularizer=None):
 
 
 def _up_sample(x, filters, name, kernel_size, strides, regularizer=None):
+    """
+    Up sample the given input using a conv2d_transpose convolution
+    :param x: The input
+    :param filters: Number of filters
+    :param name: The name of the tensor
+    :param kernel_size: The kernel size dimensions
+    :param stride: The stride to apply
+    :param regularizer: Optional regularizer for the kernel
+    :return: Tensor with the upsampled input
+    """
     return tf.layers.conv2d_transpose(
         x,
         filters=filters,
@@ -133,7 +151,8 @@ def optimize(nn_last_layer, labels, learning_rate, num_classes):
     :param nn_last_layer: TF Tensor of the last layer in the neural network
     :param labels: TF Placeholder for the correct label image
     :param learning_rate: TF Placeholder for the learning rate
-    :return: Tuple of (logits, train_op, cross_entropy_loss)
+    :param num_classes: Number of classes to classify
+    :return: Tuple of (logits, train_op, cross_entropy_loss, global_step)
     """
     logits = tf.reshape(nn_last_layer, (-1, num_classes))
 
@@ -152,6 +171,18 @@ def optimize(nn_last_layer, labels, learning_rate, num_classes):
 
 
 def metrics(output_softmax, labels, num_classes):
+    """
+    Builds the metrics for the model, including IoU and accuracy
+
+    :param output_softmax: TF Tensor containing the sofmax operation on the last layer in the neural network 
+                           before the decoder
+    :param labels: TF Placeholder for the correct label image
+    :param num_classes: Number of classes to classify
+    :return: A tuple (metrics and metrics_reset_op). The metrics is a dictionary with metrics (iou and acc) 
+             that each contain a tuple with the tensor value and the update tensor operation. The metric_reset_op
+             is an operation that reinizializes the internal counters of the metrics so that they can be reset at
+             the beginning of an epoch
+    """
     logits_argmax = tf.argmax(output_softmax, axis=-1, name='output_argmax')
     labels_argmax = tf.argmax(labels, axis=-1, name='labels_argmax')
 
@@ -170,6 +201,12 @@ def metrics(output_softmax, labels, num_classes):
 
 
 def prediction(model_output):
+    """
+    Builds the prediction tensors for the model
+
+    :param model_output: TF Tensor of the last layer in the neural network before the decoder
+    :return: A tuple (output_softmax, prediction_op)
+    """
     output_softmax = tf.nn.softmax(model_output, name='output_softmax')
     prediction_class = tf.cast(tf.greater(output_softmax, 0.5), dtype=tf.float32)
 
@@ -191,27 +228,32 @@ def train_nn(sess,
              labels,
              keep_prob,
              learning_rate,
-             save_model=False,
-             tensorboard=False):
+             save_model_freq=None,
+             tensorboard_freq=None):
     """
     Train neural network and print out the loss during training.
     :param sess: TF Session
+    :param global_step: TF Placeholder containing the global step
     :param epochs: Number of epochs
     :param batch_size: Batch size
     :param get_batches_fn: Function to get batches of training data.  Call using get_batches_fn(batch_size)
+    :param batches_n: Number of batches to cover all the samples
     :param train_op: TF Operation to train the neural network
     :param cross_entropy_loss: TF Tensor for the amount of loss
-    :param iou_op: TF operation to update the iou metric
-    :param iou_mean: TF tensor for the mean iou
+    :param prediction_op: TF Tensor for the prediction class (index)
+    :param metrics: Dictionary with the evaluation metrics
+    :param metric_reset_op: TF Tensor used to reset the metrics counters
     :param image_input: TF Placeholder for input images
     :param labels: TF Placeholder for label images
     :param keep_prob: TF Placeholder for dropout keep probability
     :param learning_rate: TF Placeholder for learning rate
+    :param save_model_freq: The frequency to save the model to disk, None to disable
+    :param tensorboard_freq: The frequency to push the summaries to tensorboard, None to disable
     """
 
     model_folder = helper.model_folder()
 
-    if save_model and helper.checkpoint_exists(model_folder):
+    if save_model_freq and helper.checkpoint_exists(model_folder):
         print('Checkpoint exists, restoring model from {}'.format(model_folder))
         helper.load_model(sess, model_folder)
     else:
@@ -219,7 +261,7 @@ def train_nn(sess,
 
     sess.run(tf.local_variables_initializer())
 
-    if save_model:
+    if save_model_freq:
         saver = tf.train.Saver(max_to_keep=MODELS_LIMIT)
 
     iou_mean, iou_op = metrics['iou']
@@ -229,7 +271,7 @@ def train_nn(sess,
     step = global_step.eval(session=sess)
     start_step = step
 
-    if tensorboard:
+    if tensorboard_freq:
         # Creates the tensorboard writer
         train_writer = helper.summary_writer(sess, model_folder)
 
@@ -238,9 +280,9 @@ def train_nn(sess,
             os.path.join(FLAGS.data_dir, 'data_road', 'training'), IMAGE_SHAPE, TENSORBOARD_MAX_IMG)
 
         # Setup the summary ops
-        summary_op, image_summary_op = helper.setup_summaries(
-            sess, train_writer, image_input, labels, keep_prob, cross_entropy_loss, prediction_op, iou_mean, acc_mean,
-            summary_images, summary_labels, step, CLASSES_N, TENSORBOARD_MAX_IMG)
+        summary_op, image_summary_op = helper.setup_summaries(sess, train_writer, image_input, labels, keep_prob,
+                                                              cross_entropy_loss, prediction_op, iou_mean, acc_mean,
+                                                              summary_images, summary_labels, step, CLASSES_N)
 
     training_log = []
 
@@ -300,10 +342,10 @@ def train_nn(sess,
             mean_loss = total_loss / images_n
 
             # Saves metrics for tensorboard
-            if tensorboard:
+            if tensorboard_freq:
 
                 # Updates the summary according to frequency
-                if step % TENSORBOARD_FREQ == 0:
+                if step % tensorboard_freq == 0:
                     training_summary = sess.run(
                         summary_op, feed_dict={
                             image_input: batch_images,
@@ -340,7 +382,7 @@ def train_nn(sess,
             print('Early Stopping Triggered (Loss not decreasing in the last {} epochs)'.format(ep_loss_incr))
             break
 
-        if (epoch + 1) % MODELS_FREQ == 0 and save_model:
+        if save_model_freq and (epoch + 1) % save_model_freq == 0:
             helper.save_model(sess, saver, model_folder, global_step)
             log_data = helper.to_log_data(training_log, start_step, step, batches_n)
             helper.save_log(log_data, model_folder)
@@ -351,7 +393,7 @@ def train_nn(sess,
     print('Training Completed ({:.1f} s): Last batch: {}, Loss: {:.4f}, Acc: {:.4f}, IoU: {:.4f}'.format(
         elapsed, step, mean_loss, mean_acc, mean_iou))
 
-    if save_model:
+    if save_model_freq:
         helper.save_model(sess, saver, model_folder, global_step)
         log_data = helper.to_log_data(training_log, start_step, step, batches_n)
         helper.save_log(log_data, model_folder)
@@ -382,6 +424,11 @@ def process_image(file_path):
     if not os.path.isfile(file_path):
         raise ValueError('The file {} does not exist'.format(file_path))
 
+    images_folder = os.path.join(FLAGS.runs_dir, 'images')
+
+    if not os.path.isdir(images_folder):
+        os.makedirs(images_folder)
+
     vgg_path = helper.maybe_download_pretrained_vgg(FLAGS.data_dir)
 
     with tf.Session(config=get_config()) as sess:
@@ -393,7 +440,7 @@ def process_image(file_path):
 
         print('Processing image: {}'.format(file_path))
         name, image = helper.process_image_file(file_path, sess, logits, keep_prob, image_input, IMAGE_SHAPE)
-        scipy.misc.imsave(os.path.join(FLAGS.runs_dir, name), image)
+        scipy.misc.imsave(os.path.join(images_folder, name), image)
 
 
 def process_video(file_path):
@@ -401,7 +448,12 @@ def process_video(file_path):
     if not os.path.isfile(file_path):
         raise ValueError('The file {} does not exist'.format(file_path))
 
-    video_output = os.path.join(FLAGS.runs_dir, os.path.basename(file_path))
+    videos_folder = os.path.join(FLAGS.runs_dir, 'videos')
+
+    if not os.path.isdir(videos_folder):
+        os.makedirs(videos_folder)
+
+    video_output = os.path.join(videos_folder, os.path.basename(file_path))
 
     vgg_path = helper.maybe_download_pretrained_vgg(FLAGS.data_dir)
 
@@ -463,7 +515,7 @@ def run():
 
         train_nn(sess, global_step, FLAGS.epochs, FLAGS.batch_size, get_batches_fn, batches_n, train_op,
                  cross_entropy_loss, prediction_op, metrics_dict, metrics_reset_op, image_input, labels, keep_prob,
-                 learning_rate, True, True)
+                 learning_rate, MODELS_FREQ, TENSORBOARD_FREQ)
 
         helper.save_inference_samples(FLAGS.runs_dir, FLAGS.data_dir, sess, IMAGE_SHAPE, logits, keep_prob, image_input)
 
