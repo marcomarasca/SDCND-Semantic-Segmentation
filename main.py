@@ -22,7 +22,7 @@ SCALE_L_4 = 0.01
 MODELS_LIMIT = 5
 MODELS_FREQ = 5
 TENSORBOARD_FREQ = 5
-TENSORBOARD_MAX_IMG = 2
+TENSORBOARD_MAX_IMG = 3
 
 IMAGE_SHAPE = (160, 576)
 CLASSES_N = 2
@@ -210,7 +210,6 @@ def train_nn(sess,
     """
 
     model_folder = helper.model_folder()
-    config_tensor = helper.config_tensor()
 
     if save_model and helper.checkpoint_exists(model_folder):
         print('Checkpoint exists, restoring model from {}'.format(model_folder))
@@ -231,29 +230,17 @@ def train_nn(sess,
     start_step = step
 
     if tensorboard:
-        tf.summary.scalar('loss', cross_entropy_loss)
-        tf.summary.scalar('iou', iou_mean)
-        tf.summary.scalar('acc', acc_mean)
-
-        # Merge the summaries
-        summary_op = tf.summary.merge_all()
+        # Creates the tensorboard writer
+        train_writer = helper.summary_writer(sess, model_folder)
 
         # Gets the batch of images/labels to feed to the image summary op
         summary_images, summary_labels = helper.image_summary_batch(
             os.path.join(FLAGS.data_dir, 'data_road', 'training'), IMAGE_SHAPE, TENSORBOARD_MAX_IMG)
 
-        image_input_summary_op = tf.summary.image('image_input', image_input, max_outputs=TENSORBOARD_MAX_IMG)
-        image_pred_summary_op = tf.summary.image(
-            'image_pred',
-            tf.expand_dims(tf.div(tf.cast(prediction_op, dtype=tf.float32), CLASSES_N), -1),
-            max_outputs=TENSORBOARD_MAX_IMG)
-
-        # Creates the tensorboard writer
-        train_writer = helper.summary_writer(sess, model_folder)
-
-        # Writes the hyperparams once (records the steps if trained in multiple passes)
-        hyperparams_summary = sess.run(tf.summary.text('hyperparameters', config_tensor))
-        train_writer.add_summary(hyperparams_summary, global_step=step)
+        # Setup the summary ops
+        summary_op, image_summary_op = helper.setup_summaries(
+            sess, train_writer, image_input, labels, keep_prob, cross_entropy_loss, prediction_op, iou_mean, acc_mean,
+            summary_images, summary_labels, step, CLASSES_N, TENSORBOARD_MAX_IMG)
 
     training_log = []
 
@@ -271,11 +258,9 @@ def train_nn(sess,
     for epoch in range(epochs):
 
         total_loss = 0
-        curr_loss = 0
-        total_iou = 0
-        curr_iou = 0
-        total_acc = 0
-        curr_acc = 0
+        mean_loss = 9999
+        mean_acc = 0
+        mean_iou = 0
         images_n = 0
 
         # Resets the metrics variables at the beginning of the epoch
@@ -283,7 +268,7 @@ def train_nn(sess,
 
         batches = tqdm(
             get_batches_fn(batch_size),
-            desc='Epoch {}/{} (Step: {}, Loss: N/A, Acc: N/A, IoU: N/A)'.format(epoch + 1, epochs, step),
+            desc='Epoch {}/{} (Step: {}, Samples: N/A, Loss: N/A, Acc: N/A, IoU: N/A)'.format(epoch + 1, epochs, step),
             unit='batches',
             total=batches_n)
 
@@ -292,7 +277,7 @@ def train_nn(sess,
             feed_dict = {
                 image_input: batch_images,
                 labels: batch_labels,
-                keep_prob: (1 - FLAGS.dropout),
+                keep_prob: (1.0 - FLAGS.dropout),
                 learning_rate: FLAGS.learning_rate
             }
 
@@ -302,23 +287,17 @@ def train_nn(sess,
             images_n += len(batch_images)
 
             # Evaluate
-            loss, _, iou, _, acc = sess.run([cross_entropy_loss, iou_op, iou_mean, acc_op, acc_mean],
-                                            feed_dict={
-                                                image_input: batch_images,
-                                                labels: batch_labels,
-                                                keep_prob: 1.0
-                                            })
+            loss, _, mean_iou, _, mean_acc = sess.run([cross_entropy_loss, iou_op, iou_mean, acc_op, acc_mean],
+                                                      feed_dict={
+                                                          image_input: batch_images,
+                                                          labels: batch_labels,
+                                                          keep_prob: 1.0
+                                                      })
 
             step = global_step.eval(session=sess)
 
             total_loss += loss * len(batch_images)
-            curr_loss = total_loss / images_n
-
-            total_acc += acc * len(batch_images)
-            curr_acc = total_acc / images_n
-
-            total_iou += iou * len(batch_images)
-            curr_iou = total_iou / images_n
+            mean_loss = total_loss / images_n
 
             # Saves metrics for tensorboard
             if tensorboard:
@@ -335,28 +314,25 @@ def train_nn(sess,
 
                 # Writes the image every epoch
                 if step % batches_n == 0:
-                    image_input_summary, image_pred_summary = sess.run([image_input_summary_op, image_pred_summary_op],
-                                                                       feed_dict={
-                                                                           image_input: summary_images,
-                                                                           labels: summary_labels,
-                                                                           keep_prob: 1.0
-                                                                       })
-                    train_writer.add_summary(image_input_summary, global_step=step)
+                    image_pred_summary = sess.run(
+                        image_summary_op,
+                        feed_dict={
+                            image_input: summary_images,
+                            labels: summary_labels,
+                            keep_prob: 1.0
+                        })
                     train_writer.add_summary(image_pred_summary, global_step=step)
                     train_writer.flush()
 
-            batches.set_description('Epoch {}/{} (Step: {}, Loss: {:.4f}, Acc: {:.4f}, IoU: {:.4f})'.format(
-                epoch + 1, epochs, step, curr_loss, curr_acc, curr_iou))
+            batches.set_description(
+                'Epoch {}/{} (Step: {}, Samples: {}, Loss: {:.4f}, Acc: {:.4f}, IoU: {:.4f})'.format(
+                    epoch + 1, epochs, step, images_n, mean_loss, mean_acc, mean_iou))
 
-        epoch_loss = total_loss / images_n
-        epoch_acc = total_acc / images_n
-        epoch_iou = total_iou / images_n
+        training_log.append((mean_loss, mean_acc, mean_iou))
 
-        training_log.append((epoch_loss, epoch_acc, epoch_iou))
-
-        if epoch_loss < best_loss:
+        if mean_loss < best_loss:
             ep_loss_incr = 0
-            best_loss = epoch_loss
+            best_loss = mean_loss
         else:
             ep_loss_incr += 1
 
@@ -373,7 +349,7 @@ def train_nn(sess,
     elapsed = time.time() - start
 
     print('Training Completed ({:.1f} s): Last batch: {}, Loss: {:.4f}, Acc: {:.4f}, IoU: {:.4f}'.format(
-        elapsed, step, total_loss / images_n, total_acc / images_n, total_iou / images_n))
+        elapsed, step, mean_loss, mean_acc, mean_iou))
 
     if save_model:
         helper.save_model(sess, saver, model_folder, global_step)

@@ -38,6 +38,34 @@ if not os.path.isdir(LOGS_DIR):
     os.makedirs(LOGS_DIR)
 
 
+def _assert_folder_exists(folder):
+    if not os.path.isdir(folder):
+        raise ValueError('The folder {} does not exist'.format(folder))
+
+
+def _model_checkpoint(model_folder):
+    file_name = MODEL_NAME + MODEL_EXT
+    return os.path.join(model_folder, file_name)
+
+
+def _limit_samples(paths):
+    if FLAGS.samples_limit is not None:
+        paths = paths[:FLAGS.samples_limit]
+    return paths
+
+
+def _config_tensor():
+    return tf.stack([
+        tf.convert_to_tensor(['epochs', str(FLAGS.epochs)]),
+        tf.convert_to_tensor(['batch_size', str(FLAGS.batch_size)]),
+        tf.convert_to_tensor(['learning_rate', str(FLAGS.learning_rate)]),
+        tf.convert_to_tensor(['dropout', str(FLAGS.dropout)]),
+        tf.convert_to_tensor(['l2_reg', str(FLAGS.l2_reg)]),
+        tf.convert_to_tensor(['eps', str(FLAGS.eps)]),
+        tf.convert_to_tensor(['scale', 'ON' if FLAGS.scale else 'OFF'])
+    ])
+
+
 class DLProgress(tqdm):
     """
 	Report download progress to the terminal.
@@ -95,16 +123,6 @@ def maybe_download_pretrained_vgg(data_dir):
     return vgg_path
 
 
-def _assert_folder_exists(folder):
-    if not os.path.isdir(folder):
-        raise ValueError('The folder {} does not exist'.format(folder))
-
-
-def _model_checkpoint(model_folder):
-    file_name = MODEL_NAME + MODEL_EXT
-    return os.path.join(model_folder, file_name)
-
-
 def save_model(sess, saver, model_folder, global_step):
     model_path = _model_checkpoint(model_folder)
     save_path = saver.save(sess, model_path, global_step=global_step)
@@ -118,6 +136,20 @@ def load_model(sess, model_folder):
     model_path = tf.train.latest_checkpoint(model_folder)
     saver.restore(sess, model_path)
     print('Model restored from path: {}'.format(model_path))
+
+
+def checkpoint_exists(model_folder):
+    return os.path.isfile(os.path.join(model_folder, 'checkpoint'))
+
+
+def model_folder():
+    model_folder = FLAGS.model_folder
+    if model_folder is None:
+        file_name = 'm_e=' + str(FLAGS.epochs) + '_bs=' + str(FLAGS.batch_size) + '_lr=' + str(
+            FLAGS.learning_rate) + '_do=' + str(FLAGS.dropout) + '_l2=' + str(FLAGS.l2_reg) + '_eps=' + str(
+                FLAGS.eps) + '_scale=' + ('on' if FLAGS.scale else 'off')
+        model_folder = os.path.join(MODEL_DIR, file_name)
+    return model_folder
 
 
 def to_log_data(training_log, start_step, end_step, batches_n):
@@ -136,16 +168,6 @@ def to_log_data(training_log, start_step, end_step, batches_n):
             'scale': FLAGS.scale
         }
     }
-
-
-def summary_writer(sess, model_folder):
-    model_folder_name = os.path.basename(model_folder)
-    return tf.summary.FileWriter(os.path.join(LOGS_DIR, model_folder_name), graph=sess.graph)
-
-
-def image_summary_batch(data_folder, image_shape, image_n):
-    batch_fn, samples_n = gen_batch_function(data_folder, image_shape)
-    return next(batch_fn(image_n))
 
 
 def save_log(log_data, model_folder):
@@ -219,36 +241,51 @@ def plot_log(log_data, model_folder):
     fig.savefig(os.path.join(model_folder, file_name), bbox_inches='tight')
 
 
-def checkpoint_exists(model_folder):
-    return os.path.isfile(os.path.join(model_folder, 'checkpoint'))
+def summary_writer(sess, model_folder):
+    model_folder_name = os.path.basename(model_folder)
+    return tf.summary.FileWriter(os.path.join(LOGS_DIR, model_folder_name), graph=sess.graph)
 
 
-def model_folder():
-    model_folder = FLAGS.model_folder
-    if model_folder is None:
-        file_name = 'm_e=' + str(FLAGS.epochs) + '_bs=' + str(FLAGS.batch_size) + '_lr=' + str(
-            FLAGS.learning_rate) + '_do=' + str(FLAGS.dropout) + '_l2=' + str(FLAGS.l2_reg) + '_eps=' + str(
-                FLAGS.eps) + '_scale=' + ('on' if FLAGS.scale else 'off')
-        model_folder = os.path.join(MODEL_DIR, file_name)
-    return model_folder
+def image_summary_batch(data_folder, image_shape, image_n):
+    batch_fn, samples_n = gen_batch_function(data_folder, image_shape)
+    return next(batch_fn(image_n))
 
 
-def config_tensor():
-    return tf.stack([
-        tf.convert_to_tensor(['epochs', str(FLAGS.epochs)]),
-        tf.convert_to_tensor(['batch_size', str(FLAGS.batch_size)]),
-        tf.convert_to_tensor(['learning_rate', str(FLAGS.learning_rate)]),
-        tf.convert_to_tensor(['dropout', str(FLAGS.dropout)]),
-        tf.convert_to_tensor(['l2_reg', str(FLAGS.l2_reg)]),
-        tf.convert_to_tensor(['eps', str(FLAGS.eps)]),
-        tf.convert_to_tensor(['scale', 'ON' if FLAGS.scale else 'OFF'])
-    ])
+def setup_summaries(sess, writer, image_input, labels, keep_prob, cross_entropy_loss, prediction_op, iou_mean, acc_mean,
+                    summary_images, summary_labels, step, classes_num, max_imgs):
 
+    tf.summary.scalar('loss', cross_entropy_loss)
+    tf.summary.scalar('iou', iou_mean)
+    tf.summary.scalar('acc', acc_mean)
 
-def limit_samples(paths):
-    if FLAGS.samples_limit is not None:
-        paths = paths[:FLAGS.samples_limit]
-    return paths
+    # Merge running summaries
+    summary_op = tf.summary.merge_all()
+
+    # Setup the prediction image summary op
+    image_summary_op = tf.summary.image(
+        'image_prediction',
+        tf.expand_dims(tf.div(tf.cast(prediction_op, dtype=tf.float32), classes_num), -1),
+        max_outputs=max_imgs)
+
+    # Execute the input image summary
+    image_input_summary = sess.run(
+        tf.summary.image('image_input', image_input, max_outputs=max_imgs),
+        feed_dict={
+            image_input: summary_images,
+            labels: summary_labels,
+            keep_prob: 1.0
+        })
+
+    # Writes the input image only once (records the steps if trained in multiple passes)
+    writer.add_summary(image_input_summary, global_step=step)
+
+    # Setup the hyperparams summary
+    hyperparams_summary = sess.run(tf.summary.text('hyperparameters', _config_tensor()))
+
+    # Writes the hyperparams only once (records the steps if trained in multiple passes)
+    writer.add_summary(hyperparams_summary, global_step=step)
+
+    return summary_op, image_summary_op
 
 
 def gen_batch_function(data_folder, image_shape):
@@ -266,7 +303,7 @@ def gen_batch_function(data_folder, image_shape):
     }
     background_color = np.array([255, 0, 0])
 
-    image_paths = limit_samples(image_paths)
+    image_paths = _limit_samples(image_paths)
 
     samples_n = len(image_paths)
 
@@ -362,7 +399,7 @@ def gen_test_output(sess, logits, keep_prob, image_pl, data_folder, image_shape)
 
     image_paths = glob(os.path.join(data_folder, 'image_2', '*.png'))
 
-    image_paths = limit_samples(image_paths)
+    image_paths = _limit_samples(image_paths)
 
     for image_file in tqdm(image_paths, desc='Processing: ', unit='images', total=len(image_paths)):
         yield process_image_file(image_file, sess, logits, keep_prob, image_pl, image_shape)
