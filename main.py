@@ -21,6 +21,7 @@ SCALE_L_3 = 0.0001
 SCALE_L_4 = 0.01
 MODELS_LIMIT = 5
 MODELS_FREQ = 5
+TENSORBOARD_MAX_IMG = 2
 
 IMAGE_SHAPE = (160, 576)
 CLASSES_N = 2
@@ -236,10 +237,11 @@ def train_nn(sess,
         # Merge the summaries
         summary_op = tf.summary.merge_all()
 
-        image_summary_op = tf.summary.image(
-            'prediction_image',
+        image_input_summary_op = tf.summary.image('image_input', image_input, max_outputs=TENSORBOARD_MAX_IMG)
+        image_pred_summary_op = tf.summary.image(
+            'image_pred',
             tf.expand_dims(tf.div(tf.cast(prediction_op, dtype=tf.float32), CLASSES_N), -1),
-            max_outputs=2)
+            max_outputs=TENSORBOARD_MAX_IMG)
 
         # Creates the tensorboard writer
         train_writer = helper.summary_writer(sess, model_folder)
@@ -322,13 +324,14 @@ def train_nn(sess,
 
                 # Writes the image every epoch
                 if step % batches_n == 0:
-                    image_summary = sess.run(
-                        image_summary_op, feed_dict={
-                            image_input: batch_images,
-                            labels: batch_labels,
-                            keep_prob: 1.0
-                        })
-                    train_writer.add_summary(image_summary, global_step=step)
+                    image_input_summary, image_pred_summary = sess.run([image_input_summary_op, image_pred_summary_op],
+                                                                       feed_dict={
+                                                                           image_input: batch_images,
+                                                                           labels: batch_labels,
+                                                                           keep_prob: 1.0
+                                                                       })
+                    train_writer.add_summary(image_input_summary, global_step=step)
+                    train_writer.add_summary(image_pred_summary, global_step=step)
 
             batches.set_description('Epoch {}/{} (Step: {}, Loss: {:.4f}, Acc: {:.4f}, IoU: {:.4f})'.format(
                 epoch + 1, epochs, step, curr_loss, curr_acc, curr_iou))
