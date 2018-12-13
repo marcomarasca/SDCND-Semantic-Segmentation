@@ -21,6 +21,7 @@ SCALE_L_3 = 0.0001
 SCALE_L_4 = 0.01
 MODELS_LIMIT = 5
 MODELS_FREQ = 5
+TENSORBOARD_FREQ = 5
 TENSORBOARD_MAX_IMG = 2
 
 IMAGE_SHAPE = (160, 576)
@@ -314,13 +315,16 @@ def train_nn(sess,
 
             # Saves metrics for tensorboard
             if tensorboard:
-                training_summary = sess.run(
-                    summary_op, feed_dict={
-                        image_input: batch_images,
-                        labels: batch_labels,
-                        keep_prob: 1.0
-                    })
-                train_writer.add_summary(training_summary, global_step=step)
+
+                # Updates the summary according to frequency
+                if step % TENSORBOARD_FREQ == 0:
+                    training_summary = sess.run(
+                        summary_op, feed_dict={
+                            image_input: batch_images,
+                            labels: batch_labels,
+                            keep_prob: 1.0
+                        })
+                    train_writer.add_summary(training_summary, global_step=step)
 
                 # Writes the image every epoch
                 if step % batches_n == 0:
