@@ -183,7 +183,7 @@ def plot_log(log_data, model_folder):
 
     fig, ax1 = plt.subplots(figsize=(10, 7))
 
-    ax1.set_xlabel('Step')
+    ax1.set_xlabel('Step (Epochs)')
     ax1.set_ylabel('Loss/Accuracy')
 
     x = np.arange(min(start_step + batches_n, end_step), end_step + 1, batches_n)
