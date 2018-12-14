@@ -5,8 +5,6 @@ This file is used primarily to download vgg if it has not yet been,
 give you the progress of the download, get batches for your training,
 as well as around generating and saving the image outputs.
 '''
-from args import FLAGS
-
 import re
 import random
 import os.path
@@ -33,12 +31,6 @@ MODEL_EXT = '.ckpt'
 def _assert_folder_exists(folder):
     if not os.path.isdir(folder):
         raise ValueError('The folder {} does not exist'.format(folder))
-
-
-def _limit_samples(paths):
-    if FLAGS.samples_limit is not None:
-        paths = paths[:FLAGS.samples_limit]
-    return paths
 
 
 class DLProgress(tqdm):
@@ -215,7 +207,7 @@ def image_summary_batch(data_folder, image_shape, image_n):
     return next(batch_fn(image_n))
 
 
-def gen_batch_function(data_folder, image_shape):
+def gen_batch_function(data_folder, image_shape, seed=None, samples_limit=None):
     """
 	Generate function to create batches of training data
 	:param data_folder: Path to folder that contains all the datasets
@@ -230,11 +222,12 @@ def gen_batch_function(data_folder, image_shape):
     }
     background_color = np.array([255, 0, 0])
 
-    image_paths = _limit_samples(image_paths)
+    if samples_limit:
+        image_paths = image_paths[0:samples_limit]
 
     samples_n = len(image_paths)
 
-    rnd = random.Random(FLAGS.seed)
+    rnd = random.Random(seed)
 
     def get_batches_fn(batch_size):
         """
@@ -312,7 +305,7 @@ def process_image_file(file_path, sess, logits, keep_prob, image_pl, image_shape
     return os.path.basename(file_path), street_im
 
 
-def gen_test_output(sess, logits, keep_prob, image_pl, data_folder, image_shape):
+def gen_test_output(sess, logits, keep_prob, image_pl, data_folder, image_shape, samples_limit=None):
     """
 	Generate test output using the test images
 	:param sess: TF session
@@ -326,7 +319,8 @@ def gen_test_output(sess, logits, keep_prob, image_pl, data_folder, image_shape)
 
     image_paths = glob(os.path.join(data_folder, 'image_2', '*.png'))
 
-    image_paths = _limit_samples(image_paths)
+    if samples_limit:
+        image_paths = image_paths[0:samples_limit]
 
     for image_file in tqdm(image_paths, desc='Processing: ', unit='images', total=len(image_paths)):
         yield process_image_file(image_file, sess, logits, keep_prob, image_pl, image_shape)

@@ -633,7 +633,8 @@ def run():
     vgg_path = helper.maybe_download_pretrained_vgg(FLAGS.data_dir)
     # Create function to get batches
     dataset_path = os.path.join(FLAGS.data_dir, 'data_road', 'training')
-    get_batches_fn, samples_n = helper.gen_batch_function(dataset_path, IMAGE_SHAPE)
+    get_batches_fn, samples_n = helper.gen_batch_function(
+        dataset_path, IMAGE_SHAPE, seed=FLAGS.seed, samples_limit=FLAGS.samples_limit)
 
     batches_n = int(math.ceil(float(samples_n) / FLAGS.batch_size))
 
