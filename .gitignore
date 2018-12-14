@@ -100,7 +100,9 @@ ENV/
 # mypy
 .mypy_cache/
 
-RUNS/
+runs/*
+!runs/videos/
+!runs/final/
 
 # VS Code
 .vscode/
