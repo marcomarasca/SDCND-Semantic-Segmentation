@@ -140,8 +140,8 @@ def _model_folder():
     model_folder = FLAGS.model_folder
     if model_folder is None:
         file_name = 'm_e=' + str(FLAGS.epochs) + '_bs=' + str(FLAGS.batch_size) + '_lr=' + str(
-            FLAGS.learning_rate) + '_do=' + str(FLAGS.dropout) + '_l2=' + str(FLAGS.l2_reg) + '_eps=' + str(
-                FLAGS.eps) + '_scale=' + ('on' if FLAGS.scale else 'off')
+            FLAGS.learning_rate) + '_do=' + str(FLAGS.dropout) + '_l2=' + str(
+                FLAGS.l2_reg) + '_scale=' + ('on' if FLAGS.scale else 'off')
         model_folder = os.path.join(MODEL_DIR, file_name)
     return model_folder
 
@@ -158,7 +158,6 @@ def _to_log_data(training_log, start_step, end_step, batches_n):
             'learning_rate': FLAGS.learning_rate,
             'dropout': FLAGS.dropout,
             'l2_reg': FLAGS.l2_reg,
-            'eps': FLAGS.eps,
             'scale': FLAGS.scale
         }
     }
@@ -182,7 +181,6 @@ def _config_tensor():
         tf.convert_to_tensor(['learning_rate', str(FLAGS.learning_rate)]),
         tf.convert_to_tensor(['dropout', str(FLAGS.dropout)]),
         tf.convert_to_tensor(['l2_reg', str(FLAGS.l2_reg)]),
-        tf.convert_to_tensor(['eps', str(FLAGS.eps)]),
         tf.convert_to_tensor(['scale', 'ON' if FLAGS.scale else 'OFF'])
     ])
 
@@ -316,7 +314,7 @@ def optimize(nn_last_layer, labels, learning_rate, num_classes):
     # Applies L2 regularization
     cross_entropy_loss = tf.reduce_mean(cross_entropy) + tf.losses.get_regularization_loss()
 
-    optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate, epsilon=FLAGS.eps)
+    optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
 
     global_step = tf.Variable(initial_value=0, trainable=False, name='global_step')
 
@@ -443,8 +441,8 @@ def train_nn(sess,
 
     print('Model folder: {}'.format(model_folder))
     print(
-        'Training (First batch: {}, Epochs: {}, Batch Size: {}, Learning Rate: {}, Dropout: {}, L2 Reg: {}, Eps: {}, Scaling: {})'
-        .format(step + 1, FLAGS.epochs, FLAGS.batch_size, FLAGS.learning_rate, FLAGS.dropout, FLAGS.l2_reg, FLAGS.eps,
+        'Training (First batch: {}, Epochs: {}, Batch Size: {}, Learning Rate: {}, Dropout: {}, L2 Reg: {}, Scaling: {})'
+        .format(step + 1, FLAGS.epochs, FLAGS.batch_size, FLAGS.learning_rate, FLAGS.dropout, FLAGS.l2_reg,
                 'ON' if FLAGS.scale else 'OFF'))
 
     best_loss = 9999

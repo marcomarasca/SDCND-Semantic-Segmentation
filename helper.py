@@ -155,7 +155,6 @@ def plot_log(log_data, model_folder):
     batch_size = config['batch_size']
     learning_rate = config['learning_rate']
     dropout = config['dropout']
-    eps = config['eps']
     l2_reg = config['l2_reg']
     scale = config['scale']
 
@@ -195,8 +194,8 @@ def plot_log(log_data, model_folder):
     fig.legend(handles, labels, loc=(0.7, 0.5))
     fig.tight_layout()
 
-    plt.title("(EP: {}, BS: {}, LR: {}, DO: {}, L2: {}, EPS: {}, S: {})".format(
-        epochs, batch_size, learning_rate, dropout, l2_reg, eps, 'ON' if scale else 'OFF'))
+    plt.title("(EP: {}, BS: {}, LR: {}, DO: {}, L2: {}, S: {})".format(epochs, batch_size, learning_rate, dropout,
+                                                                       l2_reg, 'ON' if scale else 'OFF'))
 
     fig.text(0.5, 0, text, verticalalignment='top', horizontalalignment='center', color='black', fontsize=10)
 
