@@ -26,16 +26,8 @@ from glob import glob
 from urllib.request import urlretrieve
 from tqdm import tqdm
 
-MODEL_DIR = 'models'
-MODEL_NAME = 'fcn-vgg16'
+MODEL_PB = 'saved_model.pb'
 MODEL_EXT = '.ckpt'
-LOGS_DIR = 'logs'
-
-if not os.path.isdir(MODEL_DIR):
-    os.makedirs(MODEL_DIR)
-
-if not os.path.isdir(LOGS_DIR):
-    os.makedirs(LOGS_DIR)
 
 
 def _assert_folder_exists(folder):
@@ -43,27 +35,10 @@ def _assert_folder_exists(folder):
         raise ValueError('The folder {} does not exist'.format(folder))
 
 
-def _model_checkpoint(model_folder):
-    file_name = MODEL_NAME + MODEL_EXT
-    return os.path.join(model_folder, file_name)
-
-
 def _limit_samples(paths):
     if FLAGS.samples_limit is not None:
         paths = paths[:FLAGS.samples_limit]
     return paths
-
-
-def _config_tensor():
-    return tf.stack([
-        tf.convert_to_tensor(['epochs', str(FLAGS.epochs)]),
-        tf.convert_to_tensor(['batch_size', str(FLAGS.batch_size)]),
-        tf.convert_to_tensor(['learning_rate', str(FLAGS.learning_rate)]),
-        tf.convert_to_tensor(['dropout', str(FLAGS.dropout)]),
-        tf.convert_to_tensor(['l2_reg', str(FLAGS.l2_reg)]),
-        tf.convert_to_tensor(['eps', str(FLAGS.eps)]),
-        tf.convert_to_tensor(['scale', 'ON' if FLAGS.scale else 'OFF'])
-    ])
 
 
 class DLProgress(tqdm):
@@ -123,8 +98,25 @@ def maybe_download_pretrained_vgg(data_dir):
     return vgg_path
 
 
-def save_model(sess, saver, model_folder, global_step):
-    model_path = _model_checkpoint(model_folder)
+def serialize_model(sess, model_name, model_folder):
+    builder = tf.saved_model.builder.SavedModelBuilder(model_folder)
+    builder.add_meta_graph_and_variables(sess, tags=[model_name])
+    save_path = builder.save()
+    print('Model saved in path: {}'.format(save_path))
+
+
+def load_serialized_model(sess, model_name, model_folder):
+    tf.saved_model.loader.load(sess, tags=[model_name], export_dir=model_folder)
+    print('Serialized model restored from path: {}'.format(model_folder))
+    return tf.get_default_graph()
+
+
+def is_model_serialized(model_folder):
+    return os.path.isfile(os.path.join(model_folder, MODEL_PB))
+
+
+def save_model(sess, saver, model_name, model_folder, global_step):
+    model_path = os.path.join(model_folder, model_name + MODEL_EXT)
     save_path = saver.save(sess, model_path, global_step=global_step)
     print('Model saved in path: {}'.format(save_path))
 
@@ -140,34 +132,6 @@ def load_model(sess, model_folder):
 
 def checkpoint_exists(model_folder):
     return os.path.isfile(os.path.join(model_folder, 'checkpoint'))
-
-
-def model_folder():
-    model_folder = FLAGS.model_folder
-    if model_folder is None:
-        file_name = 'm_e=' + str(FLAGS.epochs) + '_bs=' + str(FLAGS.batch_size) + '_lr=' + str(
-            FLAGS.learning_rate) + '_do=' + str(FLAGS.dropout) + '_l2=' + str(FLAGS.l2_reg) + '_eps=' + str(
-                FLAGS.eps) + '_scale=' + ('on' if FLAGS.scale else 'off')
-        model_folder = os.path.join(MODEL_DIR, file_name)
-    return model_folder
-
-
-def to_log_data(training_log, start_step, end_step, batches_n):
-    return {
-        'log': training_log,
-        'config': {
-            'start_step': start_step,
-            'end_step': end_step,
-            'batches_n': batches_n,
-            'epochs': FLAGS.epochs,
-            'batch_size': FLAGS.batch_size,
-            'learning_rate': FLAGS.learning_rate,
-            'dropout': FLAGS.dropout,
-            'l2_reg': FLAGS.l2_reg,
-            'eps': FLAGS.eps,
-            'scale': FLAGS.scale
-        }
-    }
 
 
 def save_log(log_data, model_folder):
@@ -240,17 +204,6 @@ def plot_log(log_data, model_folder):
     fig.savefig(os.path.join(model_folder, file_name), bbox_inches='tight')
 
 
-def summary_writer(sess, model_folder):
-    """
-	Returns the tensorboard summary writer for the given model
-	:param ses: TF session
-    :param model_folder: The model that stores the model
-	:return: Summary writer
-	"""
-    model_folder_name = os.path.basename(model_folder)
-    return tf.summary.FileWriter(os.path.join(LOGS_DIR, model_folder_name), graph=sess.graph)
-
-
 def image_summary_batch(data_folder, image_shape, image_n):
     """
 	Returns a bacth of images to be used by the tensorboard summary
@@ -261,60 +214,6 @@ def image_summary_batch(data_folder, image_shape, image_n):
 	"""
     batch_fn, samples_n = gen_batch_function(data_folder, image_shape)
     return next(batch_fn(image_n))
-
-
-def setup_summaries(sess, writer, image_input, labels, keep_prob, cross_entropy_loss, prediction_op, iou_mean, acc_mean,
-                    summary_images, summary_labels, step, classes_num):
-    """
-	Builds the TF tensors used to run record summaries
-	:param sess: The TF session
-    :param writer: The summary writer
-    :param labels: TF Placeholder for the labels
-    :param keep_prob: TF Placeholder for the keep_prob
-    :param cross_entropy_loss: TF Tensor for the loss
-    :param prediction_op: TF Tensor for the prediction
-    :param iou_mean: TF Placeholder for the mean iou
-    :param acc_mean: TF Placeholder for the mean acc
-    :param summary_images: List of images to record in the summary (and run prediction)
-    :param summary_labels: Labels associated to the summary_images
-    :param step: The current step
-    :param classes_num: The number of classes
-	:return: Tuple (summary_op, image_summary_op) with a summary for metrics and one used to save prediction images
-	"""
-    tf.summary.scalar('loss', cross_entropy_loss)
-    tf.summary.scalar('iou', iou_mean)
-    tf.summary.scalar('acc', acc_mean)
-
-    # Merge running summaries
-    summary_op = tf.summary.merge_all()
-
-    max_imgs = len(summary_images)
-
-    # Setup the prediction image summary op
-    image_summary_op = tf.summary.image(
-        'image_prediction',
-        tf.expand_dims(tf.div(tf.cast(prediction_op, dtype=tf.float32), classes_num), -1),
-        max_outputs=max_imgs)
-
-    # Execute the input image summary
-    image_input_summary = sess.run(
-        tf.summary.image('image_input', image_input, max_outputs=max_imgs),
-        feed_dict={
-            image_input: summary_images,
-            labels: summary_labels,
-            keep_prob: 1.0
-        })
-
-    # Writes the input image only once (records the steps if trained in multiple passes)
-    writer.add_summary(image_input_summary, global_step=step)
-
-    # Setup the hyperparams summary
-    hyperparams_summary = sess.run(tf.summary.text('hyperparameters', _config_tensor()))
-
-    # Writes the hyperparams only once (records the steps if trained in multiple passes)
-    writer.add_summary(hyperparams_summary, global_step=step)
-
-    return summary_op, image_summary_op
 
 
 def gen_batch_function(data_folder, image_shape):

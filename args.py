@@ -19,6 +19,7 @@ flags.DEFINE_boolean('train', True, 'If true run training, otherwise runs predic
 flags.DEFINE_string('image', None, 'Pass a single image to segment')
 flags.DEFINE_string('video', None, 'Pass a video to segment')
 flags.DEFINE_string('augment', None, 'If True runs augmentation on the dataset, exporting in the given folder')
+flags.DEFINE_string('serialize', None, 'The folder where to save the model as protobuffer')
 flags.DEFINE_boolean('cpu', False, 'Force the use of CPU')
 flags.DEFINE_string('model_folder', None, 'Specific model folder path to restore')
 flags.DEFINE_boolean('tests', True, 'True if the tests should be run')

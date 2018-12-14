@@ -16,6 +16,11 @@ import helper
 import project_tests as tests
 import augmentation
 
+MODEL_DIR = 'models'
+LOGS_DIR = 'logs'
+
+MODEL_NAME = 'fcn-vgg16'
+
 KERNEL_STDEV = 0.01
 SCALE_L_3 = 0.0001
 SCALE_L_4 = 0.01
@@ -26,6 +31,12 @@ TENSORBOARD_MAX_IMG = 3
 
 IMAGE_SHAPE = (160, 576)
 CLASSES_N = 2
+
+if not os.path.isdir(MODEL_DIR):
+    os.makedirs(MODEL_DIR)
+
+if not os.path.isdir(LOGS_DIR):
+    os.makedirs(LOGS_DIR)
 
 # Check TensorFlow Version
 assert LooseVersion(
@@ -88,6 +99,148 @@ def _up_sample(x, filters, name, kernel_size, strides, regularizer=None):
         name=name)
 
 
+def _get_config():
+    config = None
+
+    if FLAGS.cpu:
+        warn_msg("Forcing CPU usage")
+        config = tf.ConfigProto(device_count={'GPU': 0})
+
+    return config
+
+
+def _load_model(sess, model_folder):
+    """
+    Loads the model for inference, if the given folder contains a protobuffer loads the serialized version
+    :param sess: TF session
+    :model_folder: The model folder
+    :return: tuple with TF placeholders (image_input, logits, keep_prob)
+    """
+    if helper.is_model_serialized(model_folder):
+        graph = helper.load_serialized_model(sess, MODEL_NAME, _model_folder())
+
+        image_input = graph.get_tensor_by_name('image_input:0')
+        keep_prob = graph.get_tensor_by_name('keep_prob:0')
+        model_output = graph.get_tensor_by_name('model_output:0')
+
+    else:
+        vgg_path = helper.maybe_download_pretrained_vgg(FLAGS.data_dir)
+
+        image_input, keep_prob, layer3, layer4, layer7 = load_vgg(sess, vgg_path)
+        model_output = layers(layer3, layer4, layer7, CLASSES_N)
+
+        helper.load_model(sess, _model_folder())
+
+    logits = tf.reshape(model_output, (-1, CLASSES_N))
+
+    return image_input, logits, keep_prob
+
+
+def _model_folder():
+    model_folder = FLAGS.model_folder
+    if model_folder is None:
+        file_name = 'm_e=' + str(FLAGS.epochs) + '_bs=' + str(FLAGS.batch_size) + '_lr=' + str(
+            FLAGS.learning_rate) + '_do=' + str(FLAGS.dropout) + '_l2=' + str(FLAGS.l2_reg) + '_eps=' + str(
+                FLAGS.eps) + '_scale=' + ('on' if FLAGS.scale else 'off')
+        model_folder = os.path.join(MODEL_DIR, file_name)
+    return model_folder
+
+
+def _to_log_data(training_log, start_step, end_step, batches_n):
+    return {
+        'log': training_log,
+        'config': {
+            'start_step': start_step,
+            'end_step': end_step,
+            'batches_n': batches_n,
+            'epochs': FLAGS.epochs,
+            'batch_size': FLAGS.batch_size,
+            'learning_rate': FLAGS.learning_rate,
+            'dropout': FLAGS.dropout,
+            'l2_reg': FLAGS.l2_reg,
+            'eps': FLAGS.eps,
+            'scale': FLAGS.scale
+        }
+    }
+
+
+def _summary_writer(sess, model_folder):
+    """
+	Returns the tensorboard summary writer for the given model
+	:param ses: TF session
+    :param model_folder: The model that stores the model
+	:return: Summary writer
+	"""
+    model_folder_name = os.path.basename(model_folder)
+    return tf.summary.FileWriter(os.path.join(LOGS_DIR, model_folder_name), graph=sess.graph)
+
+
+def _config_tensor():
+    return tf.stack([
+        tf.convert_to_tensor(['epochs', str(FLAGS.epochs)]),
+        tf.convert_to_tensor(['batch_size', str(FLAGS.batch_size)]),
+        tf.convert_to_tensor(['learning_rate', str(FLAGS.learning_rate)]),
+        tf.convert_to_tensor(['dropout', str(FLAGS.dropout)]),
+        tf.convert_to_tensor(['l2_reg', str(FLAGS.l2_reg)]),
+        tf.convert_to_tensor(['eps', str(FLAGS.eps)]),
+        tf.convert_to_tensor(['scale', 'ON' if FLAGS.scale else 'OFF'])
+    ])
+
+
+def _setup_summaries(sess, writer, image_input, labels, keep_prob, cross_entropy_loss, prediction_op, iou_mean,
+                     acc_mean, summary_images, summary_labels, step, classes_num):
+    """
+	Builds the TF tensors used to run record summaries
+	:param sess: The TF session
+    :param writer: The summary writer
+    :param labels: TF Placeholder for the labels
+    :param keep_prob: TF Placeholder for the keep_prob
+    :param cross_entropy_loss: TF Tensor for the loss
+    :param prediction_op: TF Tensor for the prediction
+    :param iou_mean: TF Placeholder for the mean iou
+    :param acc_mean: TF Placeholder for the mean acc
+    :param summary_images: List of images to record in the summary (and run prediction)
+    :param summary_labels: Labels associated to the summary_images
+    :param step: The current step
+    :param classes_num: The number of classes
+	:return: Tuple (summary_op, image_summary_op) with a summary for metrics and one used to save prediction images
+	"""
+    tf.summary.scalar('loss', cross_entropy_loss)
+    tf.summary.scalar('iou', iou_mean)
+    tf.summary.scalar('acc', acc_mean)
+
+    # Merge running summaries
+    summary_op = tf.summary.merge_all()
+
+    max_imgs = len(summary_images)
+
+    # Setup the prediction image summary op
+    image_summary_op = tf.summary.image(
+        'image_prediction',
+        tf.expand_dims(tf.div(tf.cast(prediction_op, dtype=tf.float32), classes_num), -1),
+        max_outputs=max_imgs)
+
+    # Execute the input image summary
+    image_input_summary = sess.run(
+        tf.summary.image('image_input', image_input, max_outputs=max_imgs),
+        feed_dict={
+            image_input: summary_images,
+            labels: summary_labels,
+            keep_prob: 1.0
+        })
+
+    # Writes the input image only once (records the steps if trained in multiple passes)
+    writer.add_summary(image_input_summary, global_step=step)
+
+    # Setup the hyperparams summary
+    hyperparams_summary = sess.run(tf.summary.text('hyperparameters', _config_tensor()))
+
+    # Writes the hyperparams only once (records the steps if trained in multiple passes)
+    writer.add_summary(hyperparams_summary, global_step=step)
+
+    return summary_op, image_summary_op
+
+
 def load_vgg(sess, vgg_path):
     """
     Load Pretrained VGG Model into TensorFlow.
@@ -140,9 +293,11 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
 
     # Skip layer
     layer3_skip = tf.add(layer4_up, layer3_1x1, name='layer3_skip')
-    layer3_up = _up_sample(layer3_skip, num_classes, 'layer3_up', (16, 16), (8, 8), regularizer=l2_reg)
 
-    return layer3_up
+    model_output = _up_sample(layer3_skip, num_classes, 'layer3_up', (16, 16), (8, 8), regularizer=l2_reg)
+    model_output = tf.identity(model_output, 'model_output')
+
+    return model_output
 
 
 def optimize(nn_last_layer, labels, learning_rate, num_classes):
@@ -154,7 +309,7 @@ def optimize(nn_last_layer, labels, learning_rate, num_classes):
     :param num_classes: Number of classes to classify
     :return: Tuple of (logits, train_op, cross_entropy_loss, global_step)
     """
-    logits = tf.reshape(nn_last_layer, (-1, num_classes))
+    logits = tf.reshape(nn_last_layer, (-1, num_classes), name='logits')
 
     cross_entropy = tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=labels)
 
@@ -251,7 +406,7 @@ def train_nn(sess,
     :param tensorboard_freq: The frequency to push the summaries to tensorboard, None to disable
     """
 
-    model_folder = helper.model_folder()
+    model_folder = _model_folder()
 
     if save_model_freq and helper.checkpoint_exists(model_folder):
         print('Checkpoint exists, restoring model from {}'.format(model_folder))
@@ -273,16 +428,16 @@ def train_nn(sess,
 
     if tensorboard_freq:
         # Creates the tensorboard writer
-        train_writer = helper.summary_writer(sess, model_folder)
+        train_writer = _summary_writer(sess, model_folder)
 
         # Gets the batch of images/labels to feed to the image summary op
         summary_images, summary_labels = helper.image_summary_batch(
             os.path.join(FLAGS.data_dir, 'data_road', 'training'), IMAGE_SHAPE, TENSORBOARD_MAX_IMG)
 
         # Setup the summary ops
-        summary_op, image_summary_op = helper.setup_summaries(sess, train_writer, image_input, labels, keep_prob,
-                                                              cross_entropy_loss, prediction_op, iou_mean, acc_mean,
-                                                              summary_images, summary_labels, step, CLASSES_N)
+        summary_op, image_summary_op = _setup_summaries(sess, train_writer, image_input, labels, keep_prob,
+                                                        cross_entropy_loss, prediction_op, iou_mean, acc_mean,
+                                                        summary_images, summary_labels, step, CLASSES_N)
 
     training_log = []
 
@@ -383,8 +538,8 @@ def train_nn(sess,
             break
 
         if save_model_freq and (epoch + 1) % save_model_freq == 0:
-            helper.save_model(sess, saver, model_folder, global_step)
-            log_data = helper.to_log_data(training_log, start_step, step, batches_n)
+            helper.save_model(sess, saver, MODEL_NAME, model_folder, global_step)
+            log_data = _to_log_data(training_log, start_step, step, batches_n)
             helper.save_log(log_data, model_folder)
             helper.plot_log(log_data, model_folder)
 
@@ -394,8 +549,8 @@ def train_nn(sess,
         elapsed, step, mean_loss, mean_acc, mean_iou))
 
     if save_model_freq:
-        helper.save_model(sess, saver, model_folder, global_step)
-        log_data = helper.to_log_data(training_log, start_step, step, batches_n)
+        helper.save_model(sess, saver, MODEL_NAME, model_folder, global_step)
+        log_data = _to_log_data(training_log, start_step, step, batches_n)
         helper.save_log(log_data, model_folder)
         helper.plot_log(log_data, model_folder)
 
@@ -409,14 +564,14 @@ def run_tests():
     tests.test_train_nn(train_nn)
 
 
-def get_config():
-    config = None
+def serialize_model(target_folder):
 
-    if FLAGS.cpu:
-        warn_msg("Forcing CPU usage")
-        config = tf.ConfigProto(device_count={'GPU': 0})
+    if os.path.isdir(target_folder):
+        raise ValueError('Please specify a non existing folder')
 
-    return config
+    with tf.Session(config=_get_config()) as sess:
+        _ = _load_model(sess, _model_folder())
+        helper.serialize_model(sess, MODEL_NAME, target_folder)
 
 
 def process_image(file_path):
@@ -429,14 +584,9 @@ def process_image(file_path):
     if not os.path.isdir(images_folder):
         os.makedirs(images_folder)
 
-    vgg_path = helper.maybe_download_pretrained_vgg(FLAGS.data_dir)
+    with tf.Session(config=_get_config()) as sess:
 
-    with tf.Session(config=get_config()) as sess:
-        image_input, keep_prob, layer3, layer4, layer7 = load_vgg(sess, vgg_path)
-        model_output = layers(layer3, layer4, layer7, CLASSES_N)
-        logits = tf.reshape(model_output, (-1, CLASSES_N))
-
-        helper.load_model(sess, helper.model_folder())
+        image_input, logits, keep_prob = _load_model(sess, _model_folder())
 
         print('Processing image: {}'.format(file_path))
         name, image = helper.process_image_file(file_path, sess, logits, keep_prob, image_input, IMAGE_SHAPE)
@@ -455,14 +605,9 @@ def process_video(file_path):
 
     video_output = os.path.join(videos_folder, os.path.basename(file_path))
 
-    vgg_path = helper.maybe_download_pretrained_vgg(FLAGS.data_dir)
+    with tf.Session(config=_get_config()) as sess:
 
-    with tf.Session(config=get_config()) as sess:
-        image_input, keep_prob, layer3, layer4, layer7 = load_vgg(sess, vgg_path)
-        model_output = layers(layer3, layer4, layer7, CLASSES_N)
-        logits = tf.reshape(model_output, (-1, CLASSES_N))
-
-        helper.load_model(sess, helper.model_folder())
+        image_input, logits, keep_prob = _load_model(sess, _model_folder())
 
         reader = imageio.get_reader(file_path)
         fps = reader.get_meta_data()['fps']
@@ -477,14 +622,9 @@ def process_video(file_path):
 
 def run_testing():
 
-    vgg_path = helper.maybe_download_pretrained_vgg(FLAGS.data_dir)
+    with tf.Session(config=_get_config()) as sess:
 
-    with tf.Session(config=get_config()) as sess:
-        image_input, keep_prob, layer3, layer4, layer7 = load_vgg(sess, vgg_path)
-        model_output = layers(layer3, layer4, layer7, CLASSES_N)
-        logits = tf.reshape(model_output, (-1, CLASSES_N))
-
-        helper.load_model(sess, helper.model_folder())
+        image_input, logits, keep_prob = _load_model(sess, _model_folder())
 
         helper.save_inference_samples(FLAGS.runs_dir, FLAGS.data_dir, sess, IMAGE_SHAPE, logits, keep_prob, image_input)
 
@@ -499,7 +639,7 @@ def run():
 
     batches_n = int(math.ceil(float(samples_n) / FLAGS.batch_size))
 
-    with tf.Session(config=get_config()) as sess:
+    with tf.Session(config=_get_config()) as sess:
 
         labels = tf.placeholder(tf.float32, [None, None, None, CLASSES_N], 'input_labels')
         learning_rate = tf.placeholder(tf.float32, name='learning_rate')
@@ -533,7 +673,10 @@ def main(_):
 
     if FLAGS.tests:
         run_tests()
-    if FLAGS.image:
+
+    if FLAGS.serialize:
+        serialize_model(FLAGS.serialize)
+    elif FLAGS.image:
         process_image(FLAGS.image)
     elif FLAGS.video:
         process_video(FLAGS.video)
