@@ -104,5 +104,7 @@ RUNS/
 
 # VS Code
 .vscode/
+
+data/
 logs/
 models/

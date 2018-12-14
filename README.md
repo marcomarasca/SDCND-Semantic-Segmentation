@@ -1,70 +1,198 @@
 # Semantic Segmentation
-### Introduction
-In this project, you'll label the pixels of a road in images using a Fully Convolutional Network (FCN).
+[![Udacity - Self-Driving Car NanoDegree](https://s3.amazonaws.com/udacity-sdc/github/shield-carnd.svg)](http://www.udacity.com/drive)
 
-### Setup
-##### GPU
-`main.py` will check to make sure you are using GPU - if you don't have a GPU on your system, you can use AWS or another cloud computing platform.
-##### Frameworks and Packages
-Make sure you have the following is installed:
- - [Python 3](https://www.python.org/)
- - [TensorFlow](https://www.tensorflow.org/)
+[//]: # (Image References)
+
+[model_architecture]: ./images/architecture.png "FCN-VGG16 Architecture"
+[enc_dec]: ./images/encoder_decoder.png "FCN-VGG16 Architecture"
+[scene_understanding]: ./images/scene_segmentation.png "FCN-VGG16 Architecture"
+[kitti_dataset]: ./images/kitti_dataset.png "Kitti Dataset"
+[aug_dataset]: ./images/augmented_dataset.png "Kitti Dataset Augmented"
+[tuning]: ./images/tuning.png "Tuning Parameters"
+[tuning_s_off]: ./images/tuning_s_off.png "Scaling OFF"
+[tuning_s_on]: ./images/tuning_s_on.png "Scaling ON"
+[tuning_aug]: ./images/tuning_aug.png "Scaling ON, Augmented Data"
+[tuning_do]: ./images/tuning_do.png "Scaling ON, Augmented Data, Dropout: 0.25"
+[tuning_l2reg]: ./images/tuning_l2reg.png "Scaling ON, Augmented Data, L2 Reg: 0.0001"
+[tuning_lr]: ./images/tuning_lr.png "Scaling ON, Augmented Data, Learning Rate: 0.0005"
+[tuning_lr2]: ./images/tuning_lr2.png "Scaling ON, Augmented Data, Learning Rate: 0.0001"
+[tuning_loss_all]: ./images/tensorboard_loss_f.png "Training loss"
+[tensorboard_img]: ./images/tensorboard_img.png "Tensorboard Images"
+[tensorboard_loss]: ./images/tensorboard_loss.png "Tensorboard Loss"
+[tensorboard_iou]: ./images/tensorboard_iou.png "Tensorboard IOU"
+[tensorboard_acc]: ./images/tensorboard_acc.png "Tensorboard Accuracy"
+
+[video1_gif]: ./images/video1.gif "Semantic Segmentation"
+[video2_gif]: ./images/video2.gif "Semantic Segmentation"
+
+![Gif: Semantic Segmentation][video1_gif]
+
+Overview
+---
+
+This repository contains an implementation with [Tensorflow](https://tensorflow.org/) of a Fully Convolutional Network (FCN) used to label image pixels in the context of semantic scene understanding:
+
+![Semantic Scene Segmentation][scene_understanding]
+
+The implementation is based on the [Fully Convolutional Networks for Semantic Segmentation](https://arxiv.org/pdf/1605.06211.pdf) paper by Evan Shelhamer, Jonathan Long and Trevor Darrell (original caffe implementation can be found [here](https://github.com/shelhamer/fcn.berkeleyvision.org)).
+
+
+![FCN VGG16 Architecture][model_architecture]
+
+The model uses as *encoder* a [VGG16](https://arxiv.org/abs/1409.1556) model, then a *decoder* is added in order to upsample the filters to the final image size, using 1x1 convolutions and transposed convolutions in order to upsample the layers. Additionally skip layers are used to bring in better spatial information from previous layers.
+
+Getting Started
+---
+
+This project was implemented using [TensorFlow](https://www.tensorflow.org/) and you'll need a set of dependencies in order to run the code, in particular:
+
+ - [Python 3 (3.6)](https://www.python.org/)
+ - [TensorFlow (1.12)](https://www.tensorflow.org/)
  - [NumPy](http://www.numpy.org/)
  - [SciPy](https://www.scipy.org/)
+ - [Imageio](https://imageio.github.io/)
+ - [Tqdm](https://pypi.org/project/tqdm/)
+ - [Opencv](https://opencv.org/)
 
-You may also need [Python Image Library (PIL)](https://pillow.readthedocs.io/) for SciPy's `imresize` function.
+Given the complexity of the model a GPU is strongly suggested to train the model; A good and relatively cheap way is to use an EC2 instance on AWS. For example a p2.xlarge instance on EC2 is a good candidate for this type of task (You'll have to ask for an increase in the limits for this type of instance). Alternatively a cheaper instance type (that I used during training) is the GPU graphics instance g3x.xlarge, the instance is relatively slower but the GPU (M60) is newer and faster than the K80 on the p2.xlarge even though it has less memory (8 vs 12).
 
-##### Dataset
-Download the [Kitti Road dataset](http://www.cvlibs.net/datasets/kitti/eval_road.php) from [here](http://www.cvlibs.net/download.php?file=data_road.zip).  Extract the dataset in the `data` folder.  This will create the folder `data_road` with all the training a test images.
+You can use the official Deep Learning AMI from Amazon that contains most of the required dependencies (See https://docs.aws.amazon.com/dlami/latest/devguide/gs.html) aside from [tqdm](https://pypi.org/project/tqdm/).
 
-### Start
-##### Implement
-Implement the code in the `main.py` module indicated by the "TODO" comments.
-The comments indicated with "OPTIONAL" tag are not required to complete.
-##### Run
-Run the following command to run the project:
+The [main.py](./main.py) script can be run as follows:
+
+```bash
+$ python model.py [flags]
 ```
-python main.py
+
+Where flags can be set to:
+
+* **[--data_dir]**: The folder containing the training data (default ./data)
+* **[--runs_dir]**: The folder where the output is saved (default ./runs)
+* **[--model_folder]**: The folder where the model is saved/loaded (default ./models/[generated_name])
+* **[--epochs]**: The number of epochs (default 80)
+* **[--batch_size]**: The batch size (default 25)
+* **[--dropout]**: The dropout probability (default 0.5)
+* **[--learning_rate]**: The learning rate (default 0.0001)
+* **[--l2_reg]**: The amount of L2 regularization (defualt 0.001)
+* **[--scale]**: True if scaling should be applied to layers 3 and 4 of VGG (default True)
+* **[--early_stopping]**: The number of epochs after which the training is stopped if the loss didn't improve (default 4)
+* **[--seed]**: Integer used to seed random ops for reproducibility (default None)
+* **[--cpu]**: If True disable the GPU (default None)
+* **[--tests]**: If True runs the tests (default True)
+* **[--train]**: If True runs the training (default True), if a model checkpoint exists in the model_folder the weights will be reloaded
+* **[--image]**: Image path to run inference for (default None)
+* **[--video]**: Video path to run inference for (defatul None)
+* **[--augment]**: Path to the target folder where to save augmented data from data_dir (default None)
+* **[--serialize]**: Path of a non existing folder where to save the pb version of the checkpoint saved during training (default None)
+
+### Tensorboard
+The script will save summaries for [Tensorboard](https://www.tensorflow.org/guide/summaries_and_tensorboard) in the *logs* folder:
+
+```bash
+$ tensorboard --samples_per_plugin images=0 --logdir=logs
 ```
-**Note:** If running this in Jupyter Notebook system messages, such as those regarding test status, may appear in the terminal rather than the notebook.
 
-#### Example Outputs
-Here are examples of a sufficient vs. insufficient output from a trained network:
+The summaries include the training *loss*, *accuracy* and *intersection over union (IOU)* metrics. It will also save images with the predicted result:
 
-Sufficient Result          |  Insufficient Result
-:-------------------------:|:-------------------------:
-![Sufficient](./examples/sufficient_result.png)  |  ![Insufficient](./examples/insufficient_result.png)
+![Tensorboard][tensorboard_img]![Tensorboard][tensorboard_loss]
 
-### Submission
-1. Ensure you've passed all the unit tests.
-2. Ensure you pass all points on [the rubric](https://review.udacity.com/#!/rubrics/989/view).
-3. Submit the following in a zip file.
- - `helper.py`
- - `main.py`
- - `project_tests.py`
- - Newest inference images from `runs` folder  (**all images from the most recent run**)
- 
-### Tips
-- The link for the frozen `VGG16` model is hardcoded into `helper.py`.  The model can be found [here](https://s3-us-west-1.amazonaws.com/udacity-selfdrivingcar/vgg.zip).
-- The model is not vanilla `VGG16`, but a fully convolutional version, which already contains the 1x1 convolutions to replace the fully connected layers. Please see this [post](https://s3-us-west-1.amazonaws.com/udacity-selfdrivingcar/forum_archive/Semantic_Segmentation_advice.pdf) for more information.  A summary of additional points, follow. 
-- The original FCN-8s was trained in stages. The authors later uploaded a version that was trained all at once to their GitHub repo.  The version in the GitHub repo has one important difference: The outputs of pooling layers 3 and 4 are scaled before they are fed into the 1x1 convolutions.  As a result, some students have found that the model learns much better with the scaling layers included. The model may not converge substantially faster, but may reach a higher IoU and accuracy. 
-- When adding l2-regularization, setting a regularizer in the arguments of the `tf.layers` is not enough. Regularization loss terms must be manually added to your loss function. otherwise regularization is not implemented.
+![Tensorboard][tensorboard_iou]![Tensorboard][tensorboard_acc]
 
-### Why Layer 3, 4 and 7?
-In `main.py`, you'll notice that layers 3, 4 and 7 of VGG16 are utilized in creating skip layers for a fully convolutional network. The reasons for this are contained in the paper [Fully Convolutional Networks for Semantic Segmentation](https://arxiv.org/pdf/1605.06211.pdf).
+### Examples
 
-In section 4.3, and further under header "Skip Architectures for Segmentation" and Figure 3, they note these provided for 8x, 16x and 32x upsampling, respectively. Using each of these in their FCN-8s was the most effective architecture they found. 
+#### Training
 
-### Optional sections
-Within `main.py`, there are a few optional sections you can also choose to implement, but are not required for the project.
+An example to run a training session on 10 epochs with a batch size of 10 and learning rate of 0.001, saving the model into models\my_model: 
 
-1. Train and perform inference on the [Cityscapes Dataset](https://www.cityscapes-dataset.com/). Note that the `project_tests.py` is not currently set up to also unit test for this alternate dataset, and `helper.py` will also need alterations, along with changing `num_classes` and `input_shape` in `main.py`. Cityscapes is a much more extensive dataset, with segmentation of 30 different classes (compared to road vs. not road on KITTI) on either 5,000 finely annotated images or 20,000 coarsely annotated images.
-2. Add image augmentation. You can use some of the augmentation techniques you may have used on Traffic Sign Classification or Behavioral Cloning, or look into additional methods for more robust training!
-3. Apply the trained model to a video. This project only involves performing inference on a set of test images, but you can also try to utilize it on a full video.
- 
-### Using GitHub and Creating Effective READMEs
-If you are unfamiliar with GitHub , Udacity has a brief [GitHub tutorial](http://blog.udacity.com/2015/06/a-beginners-git-github-tutorial.html) to get you started. Udacity also provides a more detailed free [course on git and GitHub](https://www.udacity.com/course/how-to-use-git-and-github--ud775).
+```bash
+$ python main.py --tests=false --epochs=10 --batch_size=10 --learning_rate=0.001 --model_folder=models\\my_model
+```
 
-To learn about REAMDE files and Markdown, Udacity provides a free [course on READMEs](https://www.udacity.com/courses/ud777), as well. 
+#### Processing Image
 
-GitHub also provides a [tutorial](https://guides.github.com/features/mastering-markdown/) about creating Markdown files.
+An example of processing a single image image.png using a model saved into models\my_model:
+
+```bash
+$ python main.py --tests=false --model_folder=models\\my_model --image=image.png
+```
+
+#### Processing Video
+
+An example of processing a video video.mp4 using a model saved into models\my_model:
+
+```bash
+$ python main.py --tests=false --model_folder=models\\my_model --video=video.mp4
+```
+
+![Video][video2_gif]
+
+#### Dataset aumentation
+
+An example of augmenting the dataset in the data folder ans saving the result in data\augmented (expects the training to be in data\data_road\training):
+
+```bash
+$ python main.py --tests=false --data_dir=data --augment=data\\augmented
+```
+
+#### Serializing model
+
+An example of serializing a model to a proto buffer in model\my_model\serialized from a checkpoint in models\my_model:
+
+```bash
+$ python main.py --tests=false --model_folder=models\\my_model --serialize=models\\my_model\\serialized
+```
+
+Dataset
+---
+
+In order to train the network we used the [Kitti Road dataset](http://www.cvlibs.net/datasets/kitti/eval_road.php), that can be downloaded from [here](http://www.cvlibs.net/download.php?file=data_road.zip). It contains both training and testing images, with the ground truth images for the training dataset that are labelled with the correct pixel categorization (road vs non-road):
+
+![Kitti Dataset][kitti_dataset]
+
+Augmentation
+---
+
+The Kitti dataset contains 289 labelled samples, in order to improve the model performance it can be easily augmented, the repository contains a python script that simply *mirrors* the images and applies a random amount of *brightness*:
+
+![Kitti Augmented Dataset][aug_dataset]
+
+Training and Testing
+---
+
+The training was performed with various hyperparameters, starting from the following *baseline*:
+
+* **Epochs**: 50
+* **Batch Size**: 15
+* **Learning Rate**: 0.001
+* **Dropout**: 0.5
+* **L2 Regularization**: 0.001
+* **Scaling**: False
+
+Note that **scaling** is a teqnique depicted in the original implementation when they perform what they name "at-once" training, the pooling layers 3 and 4 from the [VGG16](https://arxiv.org/abs/1409.1556) model are scaled before the 1x1 convolution is applied (See https://github.com/shelhamer/fcn.berkeleyvision.org/blob/1305c7378a9f0ab44b2c936f4d60e4687e3d8743/voc-fcn8s-atonce/net.py#L65).
+
+![Baseline][tuning_s_off]<br>*Baseline*
+
+Various experiments with different configurations were needed in order to tune the model:
+
+![Training Loss][tuning_loss_all]
+
+And in the following a sample of images with the various configurations:
+
+![Hyperparameters Tuning][tuning]
+
+As we can see scaling smoothen the result better and augmenting the dataset helped in producing more accurate results:
+
+![Baseline][tuning_aug]<br>*Augmented Dataset, Scaling ON*
+
+Using the base learning rate (without decay) the model would converge but stop learning after around 30-40 epochs. When lowering the learning rate on the augmented dataset we could train on **80** epochs which retained the best accuracy:
+
+![Baseline][tuning_lr2]<br>*Augmented Dataset, Scaling ON and Learning Rate 0.0001*
+
+The parameters used for the final training (in one shot):
+
+* **Epochs**: 80
+* **Batch Size**: 25
+* **Learning Rate**: 0.0001
+* **Dropout**: 0.5
+* **L2 Regularization**: 0.001
+* **Scaling**: True
