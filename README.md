@@ -50,6 +50,7 @@ This project was implemented using [TensorFlow](https://www.tensorflow.org/) and
  - [TensorFlow (1.12)](https://www.tensorflow.org/)
  - [NumPy](http://www.numpy.org/)
  - [SciPy](https://www.scipy.org/)
+ - [Matplotlib](https://matplotlib.org/)
  - [Imageio](https://imageio.github.io/)
  - [Tqdm](https://pypi.org/project/tqdm/)
  - [Opencv](https://opencv.org/)
