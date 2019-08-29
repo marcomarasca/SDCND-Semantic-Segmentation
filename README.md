@@ -49,7 +49,8 @@ This project was implemented using [TensorFlow](https://www.tensorflow.org/) and
  - [Python 3 (3.6)](https://www.python.org/)
  - [TensorFlow (1.12)](https://www.tensorflow.org/)
  - [NumPy](http://www.numpy.org/)
- - [SciPy](https://www.scipy.org/)
+ - [SciPy 1.1.0](https://www.scipy.org/)
+ On pip, use `pip install scipy==1.1.0`
  - [Matplotlib](https://matplotlib.org/)
  - [Imageio](https://imageio.github.io/)
  - [Tqdm](https://pypi.org/project/tqdm/)
