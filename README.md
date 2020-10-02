@@ -47,7 +47,8 @@ Getting Started
 This project was implemented using [TensorFlow](https://www.tensorflow.org/) and you'll need a set of dependencies in order to run the code, in particular:
 
  - [Python 3 (3.6)](https://www.python.org/)
- - [TensorFlow (1.12)](https://www.tensorflow.org/)
+ - [TensorFlow 1.10.1](https://www.tensorflow.org/)
+ - [TensorBoard 1.10.0](https://www.tensorflow.org/tensorboard/)
  - [NumPy](http://www.numpy.org/)
  - [SciPy 1.1.0](https://www.scipy.org/)
  On pip, use `pip install scipy==1.1.0`
